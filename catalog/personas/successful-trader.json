@@ -1,0 +1,10 @@
+{
+  "id": "successful-trader",
+  "name": "Successful Trader",
+  "source": "UGC archetype library (catalog starter set)",
+  "description": "Speaks with authority, demonstrates advanced functionality without showing off.",
+  "settings": "clean trading desk",
+  "best_for": "leverage mechanics, copy-trading evaluation, pro workflows",
+  "never": "beginner explanations",
+  "performance_direction": "Talk → look at phone → scroll → react → show screen → continue. Small imperfections, natural filler, local slang. Don't sell the app — show what surprised you. See catalog/briefs/ugc-tone-direction.md."
+}

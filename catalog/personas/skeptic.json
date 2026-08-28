@@ -1,0 +1,10 @@
+{
+  "id": "skeptic",
+  "name": "Skeptic",
+  "source": "UGC archetype library (catalog starter set)",
+  "description": "\"I thought this was bullshit, so I tested it.\" Wins trust by doubting first.",
+  "settings": "plain room, direct to camera",
+  "best_for": "anti-guru, fee exposes, testing claims live",
+  "never": "instant enthusiasm",
+  "performance_direction": "Talk → look at phone → scroll → react → show screen → continue. Small imperfections, natural filler, local slang. Don't sell the app — show what surprised you. See catalog/briefs/ugc-tone-direction.md."
+}

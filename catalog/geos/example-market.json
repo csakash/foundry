@@ -1,0 +1,11 @@
+{
+  "id": "example-market",
+  "name": "Example Market (starter template)",
+  "source": "catalog starter set — copy this file per target market",
+  "language": "local language / natural code-switching rules go here",
+  "settings": "recognizable local environments — apartment, cafe, street, office",
+  "local_pain_points": "the market-specific problem your product answers",
+  "notes": "distribution constraints (banned platforms, ad policy walls), cultural cues",
+  "localization_rule": "Recreate natively, never translate. Give the local creator the IDEA and let them improvise. Same idea, not same dialogue.",
+  "compliance": "Every claim re-verified as true and legally available for THIS geo before production."
+}

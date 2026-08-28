@@ -1,0 +1,10 @@
+{
+  "id": "example-intent",
+  "name": "Example Intent (starter template)",
+  "source": "catalog starter set — copy this file per campaign intent",
+  "description": "WHY this class of piece exists (e.g. reach, education, conversion, feature adoption, geo targeting).",
+  "success_metrics": "the numbers that say it worked",
+  "cta_style": "how the CTA sounds without breaking creator tone",
+  "pairs_well_with": "hooks/formats this intent usually ships through",
+  "note": "Intent = WHY the piece exists. Format = HOW it is made. Any intent can ship through any format."
+}

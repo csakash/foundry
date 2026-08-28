@@ -1,0 +1,12 @@
+{
+  "id": "discovery",
+  "name": "Wait... You Can Do This? (starter example)",
+  "source": "catalog starter set — copy this file to add your own hook family",
+  "opener": "Guys... I found this app. (pause) You need to see this.",
+  "energy": "genuine discovery, not a pitch — the creator found something and opened the camera",
+  "structure": ["bare opener + pause", "reveal exactly ONE surprising capability", "proof on screen (phone closeup / screen recording)", "reaction", "casual CTA in the creator's own voice"],
+  "example_lines": ["I literally just found this.", "Why did nobody tell me this?", "Look at this.", "No, seriously."],
+  "anti_pattern": "Revealing more than one capability, or copy that reads as written rather than spoken.",
+  "pairs_well_with": {"personas": ["friend-telling-friend", "beginner", "lifestyle-creator"]},
+  "compliance": ["every claim verified true and legally available for the target audience/geo"]
+}

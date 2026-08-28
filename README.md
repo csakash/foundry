@@ -37,7 +37,13 @@ For all projects instead of one, copy into `~/.claude/skills/` :
 git clone https://github.com/csakash/foundry.git /tmp/foundry && cp -R /tmp/foundry/skills/foundry* ~/.claude/skills/
 ```
 
-Restart Claude Code (or start a new session) and the eight skills appear in the skill list.
+Then copy the catalog scaffold and setup manifest into your project root (skip if you already have your own):
+
+```bash
+cp -R /tmp/foundry/catalog /tmp/foundry/SETUP.md /tmp/foundry/.env.example .
+```
+
+Restart Claude Code (or start a new session) and the eight skills appear in the skill list. Fill `.env` (see `SETUP.md`), then run `/foundry doctor` to verify the stack.
 
 ## Use
 
@@ -89,6 +95,29 @@ Gates are where a human decides. A rejection becomes regeneration guidance, not 
 - **Never hand a human raw JSON.** Every stage write is followed by a regenerated review page. Pasting artifact excerpts into chat is the same failure in a thinner disguise — it shows only what you chose to show.
 - **User-supplied copy is intake, never evidence.** Every figure gets sourced and registered before it reaches a frame. A fabricated number passes every other lint in the stack.
 - **Reference decomposition is never deaf.** Any reel that informs a brief goes through the analyzer with real audio — a template with an empty transcript is invalid evidence. Frame-exact timing is measured off the file, never estimated by eye.
+
+## The catalog
+
+`catalog/` is the preference & inspiration layer — **data, not code**. Hook
+families, creator personas, target geos, and campaign intents live as one JSON
+file each; raw reference docs (creative briefs, tone direction, meeting notes)
+drop into `catalog/briefs/` as markdown. The interview and brief stages read the
+catalog before proposing an angle, and every brief records which catalog ids it
+used, so performance joins back to picks.
+
+Extending the system = dropping a file. No skill edits, no code. The contract
+(schemas, the variation matrix, the director's lint) is in
+[`catalog/README.md`](catalog/README.md); this repo ships starter entries you
+replace with your own.
+
+## Setup & dependencies
+
+[`SETUP.md`](SETUP.md) is the tiered dependency manifest — API keys
+(`.env.example`), local tools (ffmpeg, yt-dlp), and the skill/MCP layer
+(official Remotion skill for deterministic motion graphics, official Playwright
+skill for captured web demos, Higgsfield/fal for generative video, Apify for
+inspiration scraping). Nothing is all-or-nothing: `/foundry doctor` checks every
+row and reports what's missing and which production lane it degrades.
 
 ## Portability
 

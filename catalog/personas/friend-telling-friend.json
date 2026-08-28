@@ -1,0 +1,10 @@
+{
+  "id": "friend-telling-friend",
+  "name": "Friend Telling Friend",
+  "source": "UGC archetype library (catalog starter set)",
+  "description": "Low-production selfie video: \"Bro, you need to see this.\" Least ad-like — possibly the strongest format.",
+  "settings": "selfie cam, handheld, anywhere",
+  "best_for": "every hook; especially found-this-app, feels-illegal",
+  "never": "polish, scripted delivery",
+  "performance_direction": "Talk → look at phone → scroll → react → show screen → continue. Small imperfections, natural filler, local slang. Don't sell the app — show what surprised you. See catalog/briefs/ugc-tone-direction.md."
+}

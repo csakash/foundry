@@ -1,0 +1,10 @@
+{
+  "id": "beginner",
+  "name": "Beginner",
+  "source": "UGC archetype library (catalog starter set)",
+  "description": "\"I know almost nothing about trading, but this feature is crazy.\" Relatable confusion is the charm.",
+  "settings": "bedroom, couch, dorm",
+  "best_for": "one-dollar-entry, paper trading, simple discoveries",
+  "never": "technical depth",
+  "performance_direction": "Talk → look at phone → scroll → react → show screen → continue. Small imperfections, natural filler, local slang. Don't sell the app — show what surprised you. See catalog/briefs/ugc-tone-direction.md."
+}

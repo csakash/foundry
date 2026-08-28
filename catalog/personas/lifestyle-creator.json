@@ -1,0 +1,10 @@
+{
+  "id": "lifestyle-creator",
+  "name": "Lifestyle Creator",
+  "source": "UGC archetype library (catalog starter set)",
+  "description": "\"I normally don't talk about trading, but...\" — makes the discovery feel bigger than finance Twitter.",
+  "settings": "kitchen, cafe, car, travel",
+  "best_for": "discovery hooks, weekend-gold, aspiration cutaways",
+  "never": "jargon, chart analysis",
+  "performance_direction": "Talk → look at phone → scroll → react → show screen → continue. Small imperfections, natural filler, local slang. Don't sell the app — show what surprised you. See catalog/briefs/ugc-tone-direction.md."
+}

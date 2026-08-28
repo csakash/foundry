@@ -91,6 +91,44 @@ mode). Only skip the interview when a complete brief already exists.
    estimated by eye from the beat summaries. The Gemini beats are a description;
    the file is the evidence.
 
+
+## The catalog — preference & inspiration layer (`catalog/`)
+
+The catalog is data, not code: hooks, personas, geos, intents, and raw reference
+briefs that parameterize briefs and scripts. `catalog/README.md` is the
+contract; this repo ships starter entries, the host project supplies its own.
+
+- **Read it at intake.** `/foundry interview` and `/foundry brief` list
+  `catalog/{hooks,personas,geos,intents}/*.json` and read `catalog/briefs/*.md`
+  as inspiration context before proposing an angle. A brief that picks a hook,
+  persona, or geo records the catalog `id`s it used in `01-brief.json`
+  (`"catalog": {"hook": …, "persona": …, "geo": …, "intent": …}`) so
+  performance can be joined back to catalog picks at `/foundry learn`.
+- **Intent ≠ format.** Intent (why the piece exists) is a catalog pick; format
+  (how it is made) is the pipeline choice. A piece =
+  intent × format × hook × persona × geo. One video = ONE discovery — never
+  stack benefits.
+- **Users extend it by dropping files** — a markdown doc into `catalog/briefs/`
+  or a JSON entry copied from a sibling file. Never hard-code a hook line,
+  archetype, or geo rule in a skill or engine module when it belongs in the
+  catalog; when new preferences arrive in chat, offer to land them as catalog
+  entries.
+- **Director's lint** applies at Gate 2 for UGC-style pieces: would a person say
+  this to a friend; is it detectable as an ad with sound off; is it explaining
+  more than one thing. Every `compliance` note on a picked catalog entry
+  becomes a Gate 4 check.
+
+## Dependencies — `/foundry doctor`
+
+`SETUP.md` is the canonical dependency manifest: API keys via `.env` /
+`.env.example` (Apify token or MCP, ElevenLabs, fal or Higgsfield MCP, Gemini
+for analysis + Nano Banana images, optional OpenAI images), local tools
+(ffmpeg, yt-dlp, Python venv, Node), and the skill/MCP layer (official Remotion
+skill → Lane A, official Playwright skill → Lane B). `/foundry doctor` = verify
+each row of SETUP.md and report what's missing and **which lane it degrades**
+(e.g. no fal/Higgsfield → Lane C pieces stop at the storyboard). Run it on any
+fresh clone before producing.
+
 ## Provenance
 
 Craft principles distilled from public research (Mayer, Muller 2008, platform

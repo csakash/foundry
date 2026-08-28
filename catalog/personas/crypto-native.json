@@ -1,0 +1,10 @@
+{
+  "id": "crypto-native",
+  "name": "Crypto Native",
+  "source": "UGC archetype library (catalog starter set)",
+  "description": "Already uses USDC/USDT, understands wallets; excited by rails, not by trading itself.",
+  "settings": "desk with hardware wallet, casual apartment",
+  "best_for": "crypto-funding, on-chain verification, fee comparisons",
+  "never": "explaining what crypto is",
+  "performance_direction": "Talk → look at phone → scroll → react → show screen → continue. Small imperfections, natural filler, local slang. Don't sell the app — show what surprised you. See catalog/briefs/ugc-tone-direction.md."
+}
