@@ -1,0 +1,23 @@
+{
+  "id": "example-recipe",
+  "name": "Example Recipe (starter template)",
+  "made_from": "work/@handle/slug (frozen 2026-01-01) — copy this file via /foundry save, never author by hand",
+  "post_type": {"kind": "video", "style": "faceless"},
+  "ingredients": {
+    "sound": {"music_family": "ambient", "gain_db": -28},
+    "voice": {"provider": "elevenlabs", "voice_id": "…", "delivery": "calm, directed"},
+    "character": null,
+    "hero_image": null,
+    "duration_sec": 30,
+    "video_model": "fal:…",
+    "edit_route": "remotion",
+    "render": {"aspect": "9:16", "resolution": "1080x1920"},
+    "brand_assets": {"tokens": "brand.tokens.json", "watermark": "…"}
+  },
+  "parameters": [
+    {"name": "topic", "plain": "what this one is about", "default": null},
+    {"name": "hook_line", "plain": "the first sentence viewers hear/read", "default": null}
+  ],
+  "stage_map": {"topic": ["script", "board", "produce"], "hook_line": ["script", "produce"]},
+  "cost_per_run": "₹0–430 depending on lane — copy actuals from the frozen piece"
+}

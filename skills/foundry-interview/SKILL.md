@@ -54,6 +54,31 @@ Load `foundry-storytelling` now; load `foundry-screenwriting` before Phase 4.
 - Expensive-to-change decisions come EARLIEST (this is the whole point):
   lane/delivery promise, audio architecture, persona — before any wording talk.
 
+### Plain language (hard rule — the user is not a filmmaker)
+
+Assume the user has never made a video and knows no production vocabulary.
+Every question must pass: **could someone who has never edited a video answer
+this without googling a word?**
+
+- **Translate jargon inline, or don't use it.** Not "which lane?" but "how
+  should this be made — real screen recordings, animated graphics, or an AI
+  character talking?" Not "audio architecture" but "will someone be speaking in
+  this video, or is it music/text only?" Not "hook archetype" but "what's the
+  first thing viewers see or hear that makes them stop scrolling?"
+- **Show, then ask.** An example beats an abstraction: quote a sample hook
+  line, describe a reference frame, show two options as mini-scenarios —
+  then ask which feels right.
+- **Every question ships a recommended default**, and "you choose" / "I don't
+  know" is always a valid answer: pick the recommendation, say what you picked
+  and why in one line, and move on. Never stall the interview on the user's
+  missing expertise — their taste is the input, not their craft knowledge.
+- **One decision per question, max ~4 options.** Batch only trivially related
+  choices. Never send a wall of questions.
+- **Ask only what's missing and matters.** Walk the ingredient manifest (router
+  skill): anything answerable from the charter, catalog, recipe, or evidence is
+  defaulted and shown — not asked. Character ingredients (look, voice, hero
+  image) belong to the influencer and are never re-asked per piece.
+
 ## Piece interview
 
 **Phase 1 — the Why.** No progress until all five are crisp:
@@ -68,7 +93,10 @@ Load `foundry-storytelling` now; load `foundry-screenwriting` before Phase 4.
    follows, replays. Not vibes.
 
 **Phase 2 — scope & the locks.** Lock, in order:
-1. **Format + lane** (delivery-promise lock — motion-led vs still-led vs
+1. **Post type first**: video (ugc / faceless / ambient / clip) or image
+   (single / multi / carousel)? Image posts terminate the journey at the
+   storyboard — say so plainly ("this one needs no video generation at all").
+   Then **format + lane** (delivery-promise lock — motion-led vs still-led vs
    captured; silently downgrading later is forbidden), via `engine/formats.py`.
 2. **Audio architecture**: locked-voice VO / native model voice / clip's own
    audio / silent + trending sound. This reshapes script, cost, and lipsync
@@ -98,8 +126,9 @@ evidence ids resolvable (`engine/evidence.py`) · word band · FTC persona rules
 Failures return to Phase 4 with the exact violation quoted.
 
 **Phase 5 — land it.** Write `work/<account>/<slug>/00-intake.json` (inputs +
-decomposition refs) and `01-brief.json` (slots + locks + budget + the Phase 1
-answers as `why`). Print the one-line invoice ("Lane C, ~₹430 ceiling") and the
+decomposition refs + the **ingredient manifest** — all 13 ingredients with
+status provided/defaulted/n-a/missing, per the router skill) and
+`01-brief.json` (slots + locks + budget + the Phase 1 answers as `why`). Print the one-line invoice ("Lane C, ~₹430 ceiling") and the
 next step: `/foundry script`. Gate 1 is hereby passed — record approval in the
 brief.
 
@@ -117,11 +146,28 @@ creator ₹230–450 · ambient ₹72 · clips ₹11–17 · data ₹0 · montag
 ₹50–860 · stills/carousel ₹2–20/frame). Recommend one from the Phase 1 answers +
 budget. This locks production physics before any creative wording.
 
-**Phase 3 — persona.** Fork: character (face-fronted → interrogate look, age,
-identity anchors, wardrobe rule, setups; then the persona pipeline runs OUTSIDE
-the interview) vs editorial (mission, POV, tone). Either way interrogate the
-**never-list hardest** — "what would make you cringe to see this account post?"
-produces better charter lines than any checklist.
+**Phase 3 — persona.** Fork: character (face-fronted) vs editorial (mission,
+POV, tone). This is where the **influencer** is born, so for a character
+account interrogate the full identity spec — in plain words, with a
+recommendation for every item, because the user is naming a person, not
+directing a shoot:
+
+- **Look**: ethnicity, age, body shape and form, wardrobe rule, hair — asked as
+  "describe them like you'd describe a friend"; offer 2–3 composed suggestions.
+- **Voice**: pick from samples, never from descriptions — generate short
+  candidates and let the user hear them (the sample gate in foundry-voice).
+  The chosen voice is locked to the character.
+- **Setting**: the 2–3 recognizable environments they live in.
+- **Hero character image**: generate candidates at still cost, iterate until
+  the user says "that's them." The approved hero image becomes the canonical
+  identity anchor — every future piece derives the character from it, so it is
+  approved with the same seriousness as a gate. Store it with the charter.
+
+These land in `charter.json → identity` (+ hero image asset) and are **never
+re-asked** in piece interviews. The persona pipeline (variants, expression
+sets) runs OUTSIDE the interview. Either fork, interrogate the **never-list
+hardest** — "what would make you cringe to see this account post?" produces
+better charter lines than any checklist.
 
 **Phase 3.5 — taste anchors.** Ask for 3–5 reference accounts or reels that
 define the taste space this account lives in ("whose feed should this feel at

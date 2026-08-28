@@ -1,6 +1,6 @@
 ---
 name: foundry
-description: Router for the Creator Foundry skill suite — the gstack of video creation. Use when the user says /foundry, asks which foundry command fits, or starts any content-production task in this repo (birthing an account, briefing, scripting, storyboarding, producing, QC). Routes to the stage flow and loads the right craft skills per stage.
+description: Router for the Creator Foundry skill suite — the gstack of content creation. Use when the user says /foundry, asks which foundry command fits, or starts any content-production task in this repo (birthing an influencer/account, briefing, scripting, storyboarding, producing, QC, saving a piece as a reusable pipeline, or batch/parallel runs). Routes to the stage flow and loads the right craft skills per stage.
 ---
 
 # Creator Foundry — the video-creation stack
@@ -9,6 +9,28 @@ Terminal-native production system for this repo. No app: Claude Code is the engi
 these skills are the product, and every stage writes a typed artifact to disk
 (`work/<account>/<slug>/NN-*.json`). Canonical process: `JOURNEY.md`. Product
 blueprint: the "Creator Foundry" artifact (URL in memory).
+
+## The vision — full-stack content creators
+
+The user is **the taste, not the crew**. Assume they have never made a video,
+never written a screenplay, never directed anything — and never require them
+to. They create an **influencer** once (`/foundry birth`: identity, look,
+voice, hero image, charter), then just drop ideas; the foundry is the writer,
+director, cinematographer, editor, and QC. Every question asked back to the
+user must be answerable by a non-creator (see foundry-interview's
+plain-language rules), every decision comes with a recommended default, and
+"you choose" is always a valid answer. The system's competence must never leak
+out as homework for the user.
+
+## Posts, not just videos
+
+The unit of output is a **post**: video OR image. Image posts are the journey
+terminated at the storyboard — a single image post is one approved board frame,
+finished; a **carousel** is N approved frames plus the Stage-2 caption. They
+are not separate pipelines: same interview, same gates, same review page, and
+every video project produces publishable image/carousel derivatives for free.
+`post_type` (video `ugc`/`faceless`/`ambient`/`clip`/…, image single/multi,
+carousel) is locked in the brief.
 
 ## The stage flow
 
@@ -23,6 +45,8 @@ blueprint: the "Creator Foundry" artifact (URL in memory).
 | QC | `/foundry qc` | `06-qc.json` | foundry-storyboard (conformance), foundry-sound |
 | Publish + learn | `/foundry learn` | publish log, `priors.json` update | — |
 | **Review** (runs after EVERY stage) | `/foundry review` | `review.html` — the page a human judges gates from | **foundry-review** |
+| Save as pipeline | `/foundry save <name>` | `pipelines/<name>.json` — the piece frozen as a reusable recipe | — |
+| Run a pipeline | `/foundry run <name> [overrides]` | a new `work/` piece with only changed stages regenerated | craft skills of the re-run stages |
 
 Stages that lack a dedicated builder today run as guided flows using the engine
 modules directly (`engine/`, `pipeline/`, `motion/`). Never collapse stages: gates
@@ -91,6 +115,61 @@ mode). Only skip the interview when a complete brief already exists.
    estimated by eye from the beat summaries. The Gemini beats are a description;
    the file is the evidence.
 
+
+## The ingredient manifest
+
+Every post is assembled from a known ingredient list. `00-intake.json` carries
+it explicitly, and the review page renders it as a plain checklist so the user
+always sees what is set, what was defaulted, and what is still owed:
+
+1. **idea** · 2. **post type** (video ugc/faceless/ambient/clip · image
+single/multi · carousel) · 3. **sound** (music family / trending audio /
+silent) · 4. **brand assets** (tokens, watermark — if applicable) ·
+5. **inspiration** (reel/video refs, decomposed per rule 9) ·
+6. **captures** (screenshots / screen recordings for product proof) ·
+7. **voice** (voiced or not; which voice) · 8. **character** (ethnicity, age,
+look, shape and form, voice match) · 9. **hero character image** (the
+canonical identity anchor) · 10. **duration** · 11. **video model** (which
+generative model, if Lane C) · 12. **edit route** (Remotion programmatic /
+captured / generative assembly) · 13. **render spec** (aspect, resolution,
+platform).
+
+Each entry is `{status: provided | defaulted | n/a | missing, value, source}`.
+The interview asks ONLY about ingredients that are missing AND matter for this
+piece; everything else is defaulted from the charter, the recipe, or the
+catalog — and shown, never hidden. Character-bound ingredients (7–9) come from
+the influencer's charter and are never re-asked per piece.
+
+## Saved pipelines — one good post becomes a series
+
+After a piece passes QC, offer `/foundry save <name>` → `pipelines/<name>.json`
+(contract: `pipelines/README.md`). The recipe freezes every approved decision;
+`/foundry run <name> topic="…"` regenerates only the stages the changed
+parameters touch (per the recipe's `stage_map`), with exactly one human gate
+before spend: the review page with new values filled in. Recipes are derived
+from artifacts, never hand-edited; charter + compliance lint still run on every
+run. **Always offer to save** when a piece clears QC — a produced post that
+isn't saved as a recipe is a series the user has to re-interview for.
+
+## Parallel production
+
+The unit of parallelism is **one piece = one `work/` directory = one agent**.
+Rules:
+
+- **Fan out with subagents.** A batch (`/foundry run <name> --matrix`, or a
+  campaign of variants) launches one Claude subagent per piece, each given the
+  recipe + its parameter set, each writing only inside its own
+  `work/<account>/<slug>/`. Never two agents in one piece directory.
+- **Gates batch too.** The human approves the matrix ONCE before fan-out (one
+  review page listing every planned variant + the total invoice); per-piece QC
+  still runs after production. Interviews are never parallel — they have a
+  human in the loop.
+- **Shared files are merge-only.** Root.tsx composition registrations (rule 6),
+  the evidence ledger, and priors are append/merge — an agent that overwrites a
+  shared file has corrupted its siblings. Caches may be shared read-write only
+  if keyed by content hash.
+- **Report back structured.** Each agent returns piece path + QC verdict +
+  actual cost; the parent renders one batch review page, never a wall of logs.
 
 ## The catalog — preference & inspiration layer (`catalog/`)
 

@@ -4,6 +4,8 @@ A suite of eight [Claude Code](https://claude.com/claude-code) skills that turn 
 
 No app, no UI. Claude Code is the engine, the skills are the product, and every stage writes a typed JSON artifact to disk that the next stage reads. A human approves at four gates, and the expensive stages never run before the cheap ones are locked.
 
+The end state is a **full-stack content creator**: you birth an influencer once — identity, look, voice, a hero image you approve like a casting decision — and from then on you just drop ideas. The Foundry is the writer, director, cinematographer, editor, and QC; you are the taste. You never need to know production vocabulary: every question comes in plain words with a recommended default, and "you choose" is always a valid answer. Output is **posts**, not just videos — image posts and carousels are the same journey stopped at the storyboard, so every video project yields image derivatives for free.
+
 ## Why it exists
 
 Most AI video workflows collapse "what should this say?", "what should it look like?" and "render it" into one prompt. That is how you spend money on motion for an idea nobody vetted.
@@ -95,6 +97,10 @@ Gates are where a human decides. A rejection becomes regeneration guidance, not 
 - **Never hand a human raw JSON.** Every stage write is followed by a regenerated review page. Pasting artifact excerpts into chat is the same failure in a thinner disguise — it shows only what you chose to show.
 - **User-supplied copy is intake, never evidence.** Every figure gets sourced and registered before it reaches a frame. A fabricated number passes every other lint in the stack.
 - **Reference decomposition is never deaf.** Any reel that informs a brief goes through the analyzer with real audio — a template with an empty transcript is invalid evidence. Frame-exact timing is measured off the file, never estimated by eye.
+
+## Pipelines — produce once, reuse forever
+
+When a piece passes QC, save it as a recipe: `/foundry save <name>` freezes every approved decision into [`pipelines/<name>.json`](pipelines/README.md). `/foundry run <name> topic="…"` then regenerates only the stages the changed parameters touch — no re-interview, one confirmation before spend. A recipe run over a parameter matrix fans out **one Claude subagent per piece** (each in its own `work/` directory), the human approves the whole matrix once, and per-piece QC still runs after. That's the path from one good video to a parallel-produced series.
 
 ## The catalog
 
