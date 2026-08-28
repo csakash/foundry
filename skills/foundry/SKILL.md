@@ -48,8 +48,8 @@ carousel) is locked in the brief.
 | Save as pipeline | `/foundry save <name>` | `pipelines/<name>.json` — the piece frozen as a reusable recipe | — |
 | Run a pipeline | `/foundry run <name> [overrides]` | a new `work/` piece with only changed stages regenerated | craft skills of the re-run stages |
 
-Stages that lack a dedicated builder today run as guided flows using the engine
-modules directly (`engine/`, `pipeline/`, `motion/`). Never collapse stages: gates
+Stages that lack a dedicated builder run as guided flows using the bundled
+engine modules (`engine/`, `pipeline/`; Remotion projects live in `motion/`). Never collapse stages: gates
 exist so the human decides idea → words → look BEFORE money is spent on motion.
 
 **Routing rule for vague input:** a raw idea, a dropped reel URL, a screenshot,
@@ -204,7 +204,11 @@ contract; this repo ships starter entries, the host project supplies its own.
 for analysis + Nano Banana images, optional OpenAI images), local tools
 (ffmpeg, yt-dlp, Python venv, Node), and the skill/MCP layer (official Remotion
 skill → Lane A, official Playwright skill → Lane B). `/foundry doctor` = verify
-each row of SETUP.md and report what's missing and **which lane it degrades**
+each row of SETUP.md **plus the engine contract set** (`engine/review.py`,
+`engine/evidence.py`, `engine/formats.py`, `engine/prompts/`,
+`pipeline/analyze_reel.py`, `brand/brand.tokens.json` — all bundled; if any is
+missing the install is incomplete: re-copy from the foundry repo) and report
+what's missing and **which lane it degrades**
 (e.g. no fal/Higgsfield → Lane C pieces stop at the storyboard). Run it on any
 fresh clone before producing.
 

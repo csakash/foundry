@@ -1,0 +1,90 @@
+{
+ "$schema_note": "Modular brand config — the single file you swap to rebrand the entire content pipeline. Starter template: replace every <angle-bracket> value with your brand's. Colors/typography here are neutral defaults.",
+ "brand": {
+  "name": "<Your Brand>",
+  "url": "<https://yourbrand.example>",
+  "tagline": "<one-line tagline>",
+  "hero_line": "<the headline your site leads with>",
+  "audience": "<who the content is for>",
+  "product_summary": "<2-3 sentences: what the product actually is and does — the analyzers and interview read this>"
+ },
+ "colors": {
+  "background": "#f4f5ef",
+  "background_warm": "#fbf8f2",
+  "surface": "#ffffff",
+  "surface_soft": "#ecefe8",
+  "text_primary": "#0d100d",
+  "text_secondary": "#4f594f",
+  "text_muted": "#747d72",
+  "text_inverse": "#ffffff",
+  "accent": "#0f4f32",
+  "accent_strong": "#0c3d27",
+  "accent_soft": "#dcebd9",
+  "accent_tint": "#eef7eb",
+  "positive": "#167a45",
+  "negative": "#b64038",
+  "market_premarket": "#2f9ea0",
+  "market_regular": "#168a4a",
+  "market_afterhours": "#b98d35"
+ },
+ "typography": {
+  "display": {
+   "family": "HB Set",
+   "fallback": "Times New Roman, Georgia, serif",
+   "weight": 720,
+   "usage": "big headlines, hook plates"
+  },
+  "body": {
+   "family": "Google Sans",
+   "fallback": "Arial, Helvetica, sans-serif",
+   "usage": "captions, UI, body copy"
+  },
+  "mono": {
+   "family": "Google Sans Code",
+   "fallback": "ui-monospace, monospace",
+   "usage": "tickers, prices, numbers"
+  }
+ },
+ "visual_style": {
+  "illustration": "Indian miniature / Rajasthani-Mughal painting style figures interacting with modern market motifs (stock tickers on coins, phone in hand). Warm paper texture, subtle grain/noise overlay.",
+  "ui_shape": "pill buttons (999px radius), 18-24px card radius, hairline borders, flat (no drop shadows)",
+  "mood": "warm, trustworthy, desi-modern; cream + deep green; editorial serif headlines over clean sans"
+ },
+ "video_defaults": {
+  "aspect_ratio": "9:16",
+  "resolution": "1080p",
+  "target_duration_seconds": 60,
+  "clip_plan_60s": [
+   15,
+   15,
+   15,
+   15
+  ],
+  "words_per_second": 2.5,
+  "target_script_words_60s": 150,
+  "captions": "burned-in, word-timed, ON by default",
+  "caption_mode": "Both",
+  "creator_accent": "Indian English (override Higgsfield default US accent)",
+  "language": "English with optional Hinglish variants"
+ },
+ "compliance": {
+  "note": "Replace with your market's real rules. These are generic platform/FTC baselines, not legal advice.",
+  "banned_phrases": [
+   "guaranteed returns",
+   "get rich",
+   "risk free",
+   "can't lose",
+   "financial advice"
+  ],
+  "required_disclosures": [
+   "AI-generated content is labeled as such where required",
+   "sponsored/paid content is disclosed"
+  ],
+  "hard_rules": [
+   "No promises of future returns; historical performance is never a promise",
+   "Personas never claim personal experience they don't have (no fake testimonials)",
+   "Every on-screen figure resolves to an evidence-ledger id",
+   "Claims must be factually true and legally available for the target geography"
+  ]
+ }
+}

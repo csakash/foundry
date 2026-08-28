@@ -42,7 +42,7 @@ git clone https://github.com/csakash/foundry.git /tmp/foundry && cp -R /tmp/foun
 Then copy the catalog scaffold and setup manifest into your project root (skip if you already have your own):
 
 ```bash
-cp -R /tmp/foundry/catalog /tmp/foundry/SETUP.md /tmp/foundry/.env.example .
+cp -R /tmp/foundry/{catalog,pipelines,engine,pipeline,brand,SETUP.md,.env.example,requirements.txt} .
 ```
 
 Restart Claude Code (or start a new session) and the eight skills appear in the skill list. Fill `.env` (see `SETUP.md`), then run `/foundry doctor` to verify the stack.
@@ -125,22 +125,25 @@ skill for captured web demos, Higgsfield/fal for generative video, Apify for
 inspiration scraping). Nothing is all-or-nothing: `/foundry doctor` checks every
 row and reports what's missing and which production lane it degrades.
 
-## Portability
+## What's in the box
 
-The skills are the craft layer and are readable and useful on their own — the structure rules, lint rules, mix levels, and gate discipline apply to any pipeline.
+The repo is batteries-included — the skills (craft layer) **and** the engine they call into:
 
-They do, however, reference a companion implementation in the repo they were authored for — `engine/` (review generator, evidence ledger, formats, prompt slots), `pipeline/` (reel decomposition via Apify → ffmpeg → whisper → Gemini), `motion/` (Remotion compositions), plus `accounts/`, `personas/`, `templates/` and `brand.tokens.json`. Those scripts are **not** included here. Treat every such path as a named contract to implement against your own stack:
-
-| Referenced path | What it must provide |
+| Path | What it provides |
 |---|---|
-| `engine/review.py` | renders artifacts → a single self-contained `review.html` |
-| `engine/evidence.py` | a citable ledger; every on-screen number resolves to an id |
-| `engine/formats.py`, `engine/prompts/` | format registry and the hook / shot / brief / voice slot templates |
-| `pipeline/analyze_reel.py` | reference decomposition with verified audio provenance |
-| `accounts/@handle/charter.json` | the per-account lint source — purpose, tone, topics in/out, never-list, visual identity |
-| `brand.tokens.json` | banned phrases and compliance overlays |
+| `skills/` | the eight foundry skills |
+| `engine/review.py` | renders a piece's artifacts → one self-contained `review.html` (every gate is judged from this page, never raw JSON) |
+| `engine/evidence.py` | the citable ledger — every on-screen number resolves to an id |
+| `engine/formats.py`, `engine/prompts/` | the format registry and the hook / shot / brief / voice slot templates |
+| `pipeline/analyze_reel.py` | reference decomposition (Apify → ffmpeg → whisper → Gemini) with verified audio provenance |
+| `brand/brand.tokens.json` | starter brand config — **swap this one file to rebrand the whole pipeline** (identity, colors, compliance rules, banned phrases) |
+| `catalog/` | starter preference layer (hooks, personas, geos, intents) |
+| `pipelines/` | the saved-recipe contract + example |
+| `SETUP.md`, `.env.example`, `requirements.txt` | dependency manifest, keys template, Python deps |
 
-Swap the tooling; keep the gates.
+Directories the system creates as you work: `accounts/` (your influencers), `work/` (pieces in flight), `templates/` (decomposed references), `evidence/` (the ledger).
+
+The engine is plain Python (stdlib + faster-whisper) — no framework, no server. Swap any module for your own as long as it honors the same contract; the skills only care about the artifacts.
 
 ## Provenance
 

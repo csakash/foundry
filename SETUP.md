@@ -24,7 +24,7 @@ open Claude Code → `/foundry`.
 |---|---|---|
 | `ffmpeg` | `brew install ffmpeg` | All cutting, assembly, audio mixing, frame-exact measurement |
 | `yt-dlp` | `brew install yt-dlp` | Extracting video/audio from Instagram & YouTube (quote clips, inspiration downloads, audio-recovery when scrapes come back video-only) |
-| Python 3 + venv | `python3 -m venv .venv` + your project's requirements (whisper, google-genai, …) | The engine/pipeline contracts (see README → Portability) |
+| Python 3 + venv | `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt` (+ `brew install yt-dlp` symlinked or on PATH) | The bundled `engine/` + `pipeline/` modules |
 | Node.js | `brew install node` | Remotion renders + Playwright captures |
 
 ## 3. Claude Code skills & MCP connectors
