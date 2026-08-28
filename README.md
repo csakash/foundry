@@ -47,6 +47,10 @@ cp -R /tmp/foundry/{catalog,pipelines,engine,pipeline,brand,SETUP.md,.env.exampl
 
 Restart Claude Code (or start a new session) and the eight skills appear in the skill list. Fill `.env` (see `SETUP.md`), then run `/foundry doctor` to verify the stack.
 
+## Update
+
+Ask the router: `/foundry upgrade`. It re-copies the foundry-owned files (skills, engine, contracts, manifests) from a fresh clone and never touches your files (`.env`, your brand tokens, your catalog entries, accounts, work, saved recipes). Then it runs `/foundry doctor` and reports what changed.
+
 ## Use
 
 Start anywhere with the router:

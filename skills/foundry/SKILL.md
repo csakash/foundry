@@ -197,6 +197,26 @@ contract; this repo ships starter entries, the host project supplies its own.
   more than one thing. Every `compliance` note on a picked catalog entry
   becomes a Gate 4 check.
 
+## Updating — `/foundry upgrade`
+
+Foundry installs are copied files, so updating = re-copying the
+**foundry-owned** paths from a fresh clone of the repo and touching nothing
+else. Two classes of files, never confused:
+
+- **Foundry-owned (always safe to overwrite):** `.claude/skills/foundry*`,
+  `engine/`, `pipeline/analyze_reel.py`, `pipelines/README.md` +
+  `pipelines/example-recipe.json`, `SETUP.md`, `.env.example`,
+  `requirements.txt`, `catalog/**/example-*` + the catalog READMEs.
+- **User-owned (never overwrite):** `.env`, `brand/brand.tokens.json` once
+  edited, every catalog entry the user added, `accounts/`, `work/`,
+  `templates/`, `evidence/`, saved `pipelines/*.json` recipes.
+
+On `/foundry upgrade`: clone the repo to a temp dir, copy the foundry-owned
+paths over, run `pip install -r requirements.txt` into the venv, then run
+`/foundry doctor` and report what changed (diff the skill/engine versions in
+one line each). If a user-owned file collides with a foundry-owned update
+(rare), show the diff and ask — never clobber silently.
+
 ## Dependencies — `/foundry doctor`
 
 `SETUP.md` is the canonical dependency manifest: API keys via `.env` /
