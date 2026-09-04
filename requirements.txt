@@ -1,1 +1,5 @@
-faster-whisper
+# Foundry engine + pipeline. Stdlib-only modules need nothing; these are the extras.
+faster-whisper        # pipeline/transcribe.py, analyze_reel.py
+google-genai          # analyze_reel.py (Gemini video analysis)
+Pillow                # pipeline/gen_figures.py alpha trim, preview page encoding
+# Optional research extras live in their own venv — see SETUP.md (Crawl4AI wants Python 3.10-3.13).

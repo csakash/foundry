@@ -1,0 +1,152 @@
+{
+ "id": "news-explainer-carousel",
+ "name": "News explainer carousel (GM house style)",
+ "made_from": "work/_research/us-locked-out (frozen 2026-08-31) — derived from the piece's own artifacts",
+ "post_type": {
+  "kind": "carousel",
+  "style": "news_explainer"
+ },
+ "reference": {
+  "house_post": "templates/DcnjhnmFdiS.json",
+  "note": "palette and layout grammar sampled from @collab.gm.marketshq's published post, not invented"
+ },
+ "ladder": [
+  {
+   "n": 1,
+   "role": "provocation",
+   "job": "a flat statement or question about something the reader half-knows",
+   "figure": "right, bleeding off the edge",
+   "extras": [
+    "stepped chart line",
+    "SWIPE cue"
+   ]
+  },
+  {
+   "n": 2,
+   "role": "proof",
+   "job": "the one sourced figure, as a table, with the reader's own row painted",
+   "figure": "none — the data is the picture"
+  },
+  {
+   "n": 3,
+   "role": "mechanism",
+   "job": "how it works, in causal steps",
+   "figure": "left, text column shifts right"
+  },
+  {
+   "n": 4,
+   "role": "example",
+   "job": "a real nameable entity and what happened to it",
+   "figure": "right"
+  },
+  {
+   "n": 5,
+   "role": "open_loop",
+   "job": "a question the account would read the answers to",
+   "figure": "right"
+  },
+  {
+   "n": 6,
+   "role": "signoff",
+   "job": "serif line plus the logo",
+   "figure": "none"
+  }
+ ],
+ "ingredients": {
+  "sound": null,
+  "voice": null,
+  "character": null,
+  "hero_image": null,
+  "duration_sec": null,
+  "video_model": null,
+  "edit_route": "pipeline/render_carousel.mjs + templates/carousel/slide.html",
+  "figure_model": "gpt-image-2 via pipeline/gen_figures.py (locked STYLE string, transparent background, alpha-trimmed)",
+  "render": {
+   "aspect": "1:1",
+   "resolution": "1080x1080"
+  },
+  "palette": {
+   "bg": "#f6f0e4",
+   "ink": "#161511",
+   "mint": "#1BD688",
+   "green": "#138957",
+   "red": "#b64038"
+  },
+  "type": {
+   "poster": "Archivo Black caps",
+   "body": "Archivo 400-700",
+   "signoff": "Instrument Serif"
+  },
+  "brand_assets": {
+   "tokens": "brand.tokens.json",
+   "logo": "brand/assets/gm-logo.svg"
+  },
+  "rules": [
+   "headlines alone must deliver the complete idea",
+   "green marks the punch words only (*asterisks* in the script)",
+   "no hashtags, no link on a slide, one product mention at most",
+   "every figure on a slide carries an evidence id"
+  ]
+ },
+ "parameters": [
+  {
+   "name": "topic",
+   "plain": "the thing in the news this one is about",
+   "default": null
+  },
+  {
+   "name": "chips",
+   "plain": "the five short labels above each headline",
+   "default": null
+  },
+  {
+   "name": "figure_subjects",
+   "plain": "one statue subject per slide, in the locked style",
+   "default": null
+  },
+  {
+   "name": "reader_row",
+   "plain": "the row to paint in the proof table — where the reader lives",
+   "default": "India"
+  }
+ ],
+ "stage_map": {
+  "topic": [
+   "research",
+   "intake",
+   "script",
+   "board"
+  ],
+  "chips": [
+   "script",
+   "board"
+  ],
+  "figure_subjects": [
+   "board"
+  ],
+  "reader_row": [
+   "script",
+   "board"
+  ]
+ },
+ "gates": [
+  "0 story in plain words",
+  "1 six-slot fill",
+  "2 headline ladder + caption",
+  "3 rendered swipe",
+  "4 publish check"
+ ],
+ "cost_per_run": {
+  "layout_inr": 0,
+  "figures": "4 x gpt-image-2 (~5.5k image output tokens each)",
+  "research_inr": 0,
+  "note": "words and layout are free; the only spend is the figures"
+ },
+ "ladder_test": [
+  "Did you know there's a US stock market Americans can't touch?",
+  "Apple and Nvidia sell in 110 countries, but not in the one they're from.",
+  "An old American rule says shares sold abroad are never registered, so they can't be sold back home.",
+  "The exchange selling them went and got its licence in Abu Dhabi instead.",
+  "So if Americans aren't allowed to buy it, does that make you careful, or curious?"
+ ]
+}

@@ -1,0 +1,216 @@
+{
+ "_doc": "The domain roster the research layer seeds from. Data, not code — add a domain here rather than in engine/research.py. `tier` decides what a finding may support: a figure on a slide traces to a primary, or to two independent secondaries. `beats` are tags for picking a subset (--beat india_regulator).",
+ "primary": [
+  {
+   "domain": "pib.gov.in",
+   "beats": [
+    "india_policy"
+   ],
+   "note": "Press Information Bureau — the government's own releases"
+  },
+  {
+   "domain": "sebi.gov.in",
+   "beats": [
+    "india_regulator"
+   ],
+   "note": "securities regulator: circulars, studies, F&O reports"
+  },
+  {
+   "domain": "rbi.org.in",
+   "beats": [
+    "india_regulator"
+   ],
+   "note": "central bank: policy, bulletins, FEMA/LRS"
+  },
+  {
+   "domain": "nseindia.com",
+   "beats": [
+    "india_markets"
+   ]
+  },
+  {
+   "domain": "bseindia.com",
+   "beats": [
+    "india_markets"
+   ]
+  },
+  {
+   "domain": "amfiindia.com",
+   "beats": [
+    "india_markets"
+   ],
+   "note": "mutual fund industry body — AUM and flow data"
+  },
+  {
+   "domain": "isro.gov.in",
+   "beats": [
+    "india_policy"
+   ]
+  },
+  {
+   "domain": "indiabudget.gov.in",
+   "beats": [
+    "india_policy"
+   ]
+  },
+  {
+   "domain": "mca.gov.in",
+   "beats": [
+    "india_policy"
+   ]
+  },
+  {
+   "domain": "sec.gov",
+   "beats": [
+    "us_markets"
+   ],
+   "note": "filings — the primary for any US-listed claim"
+  },
+  {
+   "domain": "federalreserve.gov",
+   "beats": [
+    "global_macro"
+   ]
+  },
+  {
+   "domain": "ecb.europa.eu",
+   "beats": [
+    "global_macro"
+   ]
+  },
+  {
+   "domain": "imf.org",
+   "beats": [
+    "global_macro"
+   ]
+  },
+  {
+   "domain": "worldbank.org",
+   "beats": [
+    "global_macro"
+   ]
+  },
+  {
+   "domain": "bis.org",
+   "beats": [
+    "global_macro"
+   ]
+  },
+  {
+   "domain": "oecd.org",
+   "beats": [
+    "global_macro"
+   ]
+  },
+  {
+   "domain": "kraken.com",
+   "beats": [
+    "us_markets",
+    "global_markets"
+   ],
+   "note": "own-product documentation only — primary for what Kraken's own products do, never for the wider market"
+  },
+  {
+   "domain": "backed.fi",
+   "beats": [
+    "global_markets"
+   ],
+   "note": "tokenised-equity issuer — primary for its own instruments and legal docs"
+  },
+  {
+   "domain": "coinbase.com",
+   "beats": [
+    "us_markets"
+   ],
+   "note": "own-product documentation only"
+  }
+ ],
+ "secondary": [
+  {
+   "domain": "reuters.com",
+   "beats": [
+    "global_markets"
+   ]
+  },
+  {
+   "domain": "apnews.com",
+   "beats": [
+    "global_markets"
+   ]
+  },
+  {
+   "domain": "cnbc.com",
+   "beats": [
+    "global_markets"
+   ]
+  },
+  {
+   "domain": "ft.com",
+   "beats": [
+    "global_markets"
+   ],
+   "note": "often paywalled — the crawl may return a stub"
+  },
+  {
+   "domain": "economist.com",
+   "beats": [
+    "global_markets"
+   ],
+   "note": "paywalled"
+  },
+  {
+   "domain": "livemint.com",
+   "beats": [
+    "india_markets"
+   ]
+  },
+  {
+   "domain": "business-standard.com",
+   "beats": [
+    "india_markets"
+   ]
+  },
+  {
+   "domain": "thehindubusinessline.com",
+   "beats": [
+    "india_markets"
+   ]
+  },
+  {
+   "domain": "moneycontrol.com",
+   "beats": [
+    "india_markets"
+   ]
+  },
+  {
+   "domain": "economictimes.indiatimes.com",
+   "beats": [
+    "india_markets"
+   ]
+  },
+  {
+   "domain": "financialexpress.com",
+   "beats": [
+    "india_markets"
+   ]
+  },
+  {
+   "domain": "cnbctv18.com",
+   "beats": [
+    "india_markets"
+   ]
+  },
+  {
+   "domain": "thehindu.com",
+   "beats": [
+    "india_policy"
+   ]
+  },
+  {
+   "domain": "bbc.com",
+   "beats": [
+    "global_markets"
+   ]
+  }
+ ]
+}

@@ -100,11 +100,35 @@ class Budget:
         return f"data:{mime};base64,{blob}", "embedded"
 
 
+# Aspect per post type. Instagram serves carousels at 4:5 in feed but crops the
+# grid tile to 1:1 — the page shows 4:5 and the craft skill owns the 1:1 rule.
+POST_ASPECTS = {"carousel": "4/5", "image": "4/5", "video": "9/16"}
+
+
+def post_shape(*sources: Any) -> dict[str, Any]:
+    """What kind of post this is, and how a frame should be drawn for it."""
+    ptype = aspect = None
+    for s in sources:
+        if not isinstance(s, dict):
+            continue
+        ptype = ptype or s.get("post_type") or (s.get("post") or {}).get("type")
+        aspect = aspect or s.get("aspect") or (s.get("render") or {}).get("aspect")
+    base = str(ptype or "video").split("/")[0].split(":")[0].strip().lower()
+    kind = base if base in POST_ASPECTS else ("carousel" if "carousel" in base else "video")
+    return {
+        "type": ptype or "video",
+        "kind": kind,
+        "aspect": str(aspect).replace(":", "/") if aspect else POST_ASPECTS[kind],
+        "unit": "slide" if kind == "carousel" else ("frame" if kind == "image" else "moment"),
+    }
+
+
 def collect(work_dir: Path) -> dict[str, Any]:
     """Assemble every artifact a piece has produced. Missing stages -> None."""
     wd = work_dir.resolve()
     budget = Budget()
 
+    research = read_json(wd / "00-research.json")
     intake = read_json(wd / "00-intake.json")
     brief = read_json(wd / "01-brief.json")
     script = read_json(wd / "02-script.json")
@@ -137,6 +161,11 @@ def collect(work_dir: Path) -> dict[str, Any]:
             geometry[slot]["from_persona"] = True
         if setup.get("plates"):
             geo_source = f"persona setup '{setup_name}' for named slots, provisional for the rest"
+
+    # --- post shape: a carousel is 4:5 slides, a reel is a 9:16 moment. The
+    # review page must show the frames in the shape the platform will crop to,
+    # or Gate 3 is judged on a lie.
+    post = post_shape(intake, brief, script)
 
     # --- storyboard keyframes
     keyframes: list[dict[str, Any]] = []
@@ -223,14 +252,17 @@ def collect(work_dir: Path) -> dict[str, Any]:
         "work_dir": str(wd.relative_to(ROOT)) if ROOT in wd.parents else str(wd),
         "account_handle": account_handle,
         "persona_slug": persona_slug,
+        "research": research,
         "intake": intake, "brief": brief, "script": script, "board": board, "qc": qc,
         "account": account, "charter": charter, "portfolio": portfolio, "priors": priors,
         "persona": persona,
         "geometry": geometry, "geometry_source": geo_source,
         "safe": SAFE, "dead_bottom": DEAD_BOTTOM,
+        "post": post,
         "keyframes": keyframes, "media": media, "evidence": evidence, "template": template,
         "stages": {
-            "intake": intake is not None, "brief": brief is not None,
+            "research": research is not None, "intake": intake is not None,
+            "brief": brief is not None,
             "script": script is not None, "board": board is not None,
             "assets": any(m["dir"] == "04-assets" for m in media),
             "cut": any(m["dir"] == "05-cut" for m in media),
@@ -278,7 +310,7 @@ SLOT_LABELS = {
     "centrePlate": "big card, centre",
     "gapPlate": "the gap line",
     "stampLowerRight": "the price stamp",
-    "wordmark": "the brand sign-off",
+    "wordmark": "the gm.markets sign-off",
     "captionTop": "caption",
     "hookTop": "hook text",
     "subhookTop": "second line of hook text",
@@ -294,6 +326,7 @@ VISUAL_SLOT_LABELS = {
 }
 
 GATE_QUESTIONS = {
+    0: "Is this a story worth telling?",
     1: "Is this the right idea?",
     2: "Are these the right words?",
     3: "Is this the right look?",
@@ -452,9 +485,17 @@ summary:hover{color:var(--accent)}
 .g3{grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
 .card{border:1px solid var(--line-soft);background:var(--surface);padding:16px 18px}
 .card h3{margin:0 0 8px;font-size:15px;font-weight:600}
+.storycard{border-left:3px solid var(--accent,#0f4f32);padding:2px 0 2px 18px;margin:6px 0 22px}
+.storycard p{margin:0 0 8px;font-size:19px;line-height:1.65}
+.finds{display:grid;gap:14px}
+.find{border:1px solid var(--line-soft);background:var(--surface);padding:14px 16px}
+.find .ft{font-size:15px;margin-bottom:6px}
+.find blockquote{margin:0 0 8px;padding-left:12px;border-left:2px solid var(--line);
+  color:var(--ink-2);font-size:13px;line-height:1.6}
+.find .src{font-size:12px;color:var(--ink-3);text-decoration:none;border-bottom:1px solid var(--line)}
 .kf{border:1px solid var(--line);background:var(--surface)}
-.kf img{display:block;width:100%;aspect-ratio:9/16;object-fit:cover;background:var(--surface-2)}
-.kf .empty{display:flex;align-items:center;justify-content:center;aspect-ratio:9/16;background:var(--surface-2);
+.kf img{display:block;width:100%;aspect-ratio:var(--frame-ar,9/16);object-fit:cover;background:var(--surface-2)}
+.kf .empty{display:flex;align-items:center;justify-content:center;aspect-ratio:var(--frame-ar,9/16);background:var(--surface-2);
   font-size:12px;color:var(--ink-3);text-align:center;padding:14px;line-height:1.55}
 .kf .cap{padding:10px 12px;font-size:12px;color:var(--ink-2);display:flex;justify-content:space-between;gap:8px;
   border-top:1px solid var(--line-soft)}
@@ -496,6 +537,9 @@ const L = __LABELS__;
 const el=(t,c,x)=>{const n=document.createElement(t);if(c)n.className=c;if(x!=null)n.textContent=x;return n;};
 const tc=s=>Math.max(0,s).toFixed(2).padStart(5,"0")+"s";
 const S=P.script||{}, B=P.brief||{}, BEATS=S.beats||[];
+const POST=P.post||{kind:"video",aspect:"9/16",unit:"moment"};
+document.documentElement.style.setProperty("--frame-ar",POST.aspect);
+const UNIT=POST.unit;
 const DUR=S.duration_s||(BEATS.length?BEATS[BEATS.length-1].t[1]:0);
 const slotName=s=>L.slots[s]||s;
 
@@ -534,7 +578,9 @@ document.getElementById("kicker").textContent=
    DUR?DUR.toFixed(0)+" seconds":null,
    (P.account&&P.account.platforms)?P.account.platforms.map(x=>L.platforms[x]||x).join(", "):null
   ].filter(Boolean).join("   ·   ");
-document.getElementById("story").textContent=B.story||B.one_idea||"No brief written yet — this piece is still at intake.";
+const RS=(P.research&&P.research.story)||{};
+document.getElementById("story").textContent=
+  B.story||B.one_idea||RS.text||"Nothing found or written yet — this piece has not been researched.";
 const strip=document.getElementById("strip");
 [[BEATS.length,"moments"],[(S.clips||[]).length,"pieces of footage"],
  [S.word_budget?S.word_budget.actual_words:null,"words she says"],
@@ -547,15 +593,38 @@ const M=document.getElementById("main");
 /* ---------- where it stands ---------- */
 {
   const s=section("Where it stands",null,
-    "Four moments where a person decides. Nothing expensive happens until the first three say yes.");
+    "Five moments where a person decides. Nothing expensive happens until the first four say yes — and the first one costs almost nothing to change your mind about.");
   const g=el("div","stand");
-  [[1,B.gate],[2,S.gate],[3,P.board&&P.board.gate],[4,P.qc&&P.qc.gate]].forEach(([n,gt])=>{
+  [[0,P.research&&P.research.gate],[1,B.gate],[2,S.gate],[3,P.board&&P.board.gate],
+   [4,P.qc&&P.qc.gate]].forEach(([n,gt])=>{
     const d=el("div");
     d.append(el("div","q",L.gates[n]));
     d.append(el("span","pill p-"+(gt?state(gt.status):"idle"),gt?phrase(gt.status):"Not there yet"));
     if(gt&&gt.amendment)d.append(el("div","why",gt.amendment));
     g.append(d);});
   s.append(g);M.append(s);}
+
+/* ---------- what we found ---------- */
+if(P.research){
+  const R=P.research, F=R.findings||[], SRC=R.sources||[];
+  const byId={};SRC.forEach(s=>byId[s.id]=s);
+  const s=section("What we found",
+    SRC.length?SRC.length+(SRC.length===1?" source read, ":" sources read, ")+F.length+(F.length===1?" thing":" things")+" worth using":null,
+    "Before anything is designed, here is the whole thing in plain words — the way you would hear it from a friend. If it does not make you want to know more, say so now: this is the cheapest moment to change direction.");
+  if(RS.text){const q=el("div","storycard");q.append(el("p",null,RS.text));
+    const m=el("div","why",RS.words+" words · "+(L.gates["0"]||""));q.append(m);s.append(q);}
+  if(F.length){
+    const ul=el("div","finds");
+    F.forEach(f=>{const src=byId[f.source]||{};
+      const d=el("div","find");
+      d.append(el("div","ft",f.text));
+      if(f.quote)d.append(el("blockquote",null,"“"+f.quote+"”"));
+      const a=el("a","src",(src.publisher||"source")+(src.tier?" · "+src.tier:""));
+      if(src.url){a.href=src.url;a.target="_blank";a.rel="noopener";}
+      d.append(a);ul.append(d);});
+    s.append(ul);}
+  else s.append(el("div","owed","Sources have been read but nothing has been pulled out of them yet."));
+  M.append(s);}
 
 /* ---------- watch it ---------- */
 if(BEATS.length){
@@ -692,14 +761,17 @@ if(BEATS.length){
 /* ---------- how it looks ---------- */
 {
   const has=P.keyframes.length>0;
-  const s=section("How it looks",has?P.keyframes.length+" frames":null,
-    has?"One picture per moment, approved before anything moves."
-       :"Nobody has drawn this yet. Each moment becomes a still photograph first — a still costs a rupee or two, a moving clip costs a hundred or more, so the picture is where you change your mind.");
+  const isCar=POST.kind==="carousel";
+  const s=section(isCar?"The swipe":"How it looks",
+    has?P.keyframes.length+(isCar?" slides":" frames"):null,
+    has?(isCar?"The post as someone swipes it, left to right. Slide one has to earn slide two."
+              :"One picture per moment, approved before anything moves.")
+       :"Nobody has drawn this yet. Each "+UNIT+" becomes a still picture first — a still costs a rupee or two, a moving clip costs a hundred or more, so the picture is where you change your mind.");
   if(has){const g=el("div","grid g3");
     P.keyframes.forEach(k=>{const c=el("div","kf");
-      if(k.src){const i=el("img");i.src=k.src;i.alt="Frame for moment "+k.beat;c.append(i);}
+      if(k.src){const i=el("img");i.src=k.src;i.alt="Picture for "+UNIT+" "+k.beat;c.append(i);}
       else c.append(el("div","empty",k.note||"no picture yet"));
-      const cap=el("div","cap");cap.append(el("span",null,"moment "+k.beat),
+      const cap=el("div","cap");cap.append(el("span",null,UNIT+" "+k.beat),
         el("span",null,(k.status||"draft")+(k.est_cost?" · ₹"+k.est_cost:"")));
       c.append(cap);g.append(c);});
     s.append(g);}
@@ -869,7 +941,8 @@ if(S.caption){const s=section("The caption","copy and paste");
   if(st.script&&S.lint)Object.entries(S.lint).forEach(([k,v])=>{
     if(state(v)==="fail")owed.push("Fix: "+(L.lint[k]||k.replace(/_/g," ")).toLowerCase());});
   ((S.next_stage||{}).blocked_on||[]).forEach(x=>owed.push(x));
-  if(!st.board)owed.push("Draw one picture per moment, and approve them");
+  if(!st.research)owed.push("Find the story: crawl the topic, source it, and tell it in plain words");
+  if(!st.board)owed.push("Draw one picture per "+UNIT+", and approve them");
   if(!st.assets)owed.push("Record her voice, then generate the footage");
   if(!st.cut)owed.push("Cut it together");
   if(!st.qc)owed.push("Check the finished video against this plan");

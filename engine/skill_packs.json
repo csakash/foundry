@@ -1,0 +1,58 @@
+{
+  "_doc": "Skill packs the foundry ships with. `python3 -m engine.skillpacks check|install`. A pack is 'borrowed craft': skills the foundry loads at named stages but does not own. Never edit a borrowed skill in place — it is re-copied on upgrade; put foundry-specific rules in .claude/skills/foundry*/ instead.",
+  "packs": [
+    {
+      "id": "no-ai-slop",
+      "repo": "https://github.com/petergyang/no-ai-slop",
+      "ref": "main",
+      "skills_dir": "skills",
+      "license": "see repo LICENSE",
+      "role": "Human-editor lint for every word a human will read: hooks, captions, on-screen text, VO lines, carousel slides.",
+      "required": true,
+      "stages": ["brief", "script", "board", "caption", "carousel"],
+      "skills": ["no-ai-slop"]
+    },
+    {
+      "id": "hormozi",
+      "repo": "https://github.com/alexsmedile/hormozi-skills",
+      "ref": "main",
+      "skills_dir": "skills",
+      "license": "see repo LICENSE",
+      "role": "Offer, hook and objection craft. Used when a piece has to sell something — the value framing behind an angle, the hook list a brief picks from, the objection a carousel closes on.",
+      "required": true,
+      "stages": ["interview", "brief", "script", "carousel"],
+      "exclude": ["create-plugin"],
+      "skills": [
+        "audit-offer", "bonus-stack", "business-model", "dfy-dwy-diy",
+        "effort-reduction", "hormozi-hooks", "hormozi-offer", "hormozi-pitch",
+        "idea-to-product", "landing-page-copy", "market-research",
+        "objection-destroyer", "offer-angles", "pricing-strategy", "productize",
+        "value-accelerator", "value-perception"
+      ]
+    },
+    {
+      "id": "marketing",
+      "repo": "https://github.com/coreyhaines31/marketingskills",
+      "ref": "main",
+      "skills_dir": "skills",
+      "license": "see repo LICENSE",
+      "role": "Channel and campaign craft around the post: social conventions, copywriting, ad creative, content strategy, launch, and the measurement loop that feeds /foundry learn.",
+      "required": true,
+      "stages": ["interview", "brief", "script", "carousel", "learn"],
+      "skills": [
+        "ab-testing", "ad-creative", "ads", "ai-seo", "analytics", "aso",
+        "attribution", "churn-prevention", "co-marketing", "cold-email",
+        "community-marketing", "competitor-profiling", "competitors",
+        "content-strategy", "copy-editing", "copywriting", "cro",
+        "customer-research", "directory-submissions", "emails", "events",
+        "free-tools", "image", "influencer-marketing", "launch", "lead-magnets",
+        "marketing-council", "marketing-ideas", "marketing-loops",
+        "marketing-plan", "marketing-psychology", "offers", "onboarding",
+        "paywalls", "popups", "pricing", "product-marketing",
+        "programmatic-seo", "prospecting", "public-relations", "referrals",
+        "revops", "sales-enablement", "schema", "seo-audit", "signup",
+        "site-architecture", "sms", "social", "video"
+      ]
+    }
+  ]
+}

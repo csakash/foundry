@@ -109,7 +109,7 @@ FORMATS: list[Format] = [
     Format("listicle", 8, "Resource listicle / 'save this'", ["B", "A"], (12, 30),
            "ListicleReel", ["card_stack", "web_screenshot", "captions", "voice_tts"],
            ["hook", "voice"], "₹15–25",
-           "Put the brand third in a five-item list, never first."),
+           "Put gm.markets third in a five-item list, never first."),
     Format("portfolio_breakdown", 6, "Portfolio / '$10K breakdown'", ["A", "B"], (45, 94),
            "PortfolioReel", ["allocation_chart", "market_data", "captions", "voice_tts"],
            ["hook", "voice"], "₹15–40",

@@ -1,0 +1,120 @@
+{
+ "id": "feature-post",
+ "name": "Feature post (five-line, GM house style)",
+ "made_from": "work/_research/every-fee-one-page and eight siblings (frozen 2026-09-03)",
+ "post_type": {
+  "kind": "carousel",
+  "style": "feature_post"
+ },
+ "ladder": [
+  "friction (must pass the so-what gate)",
+  "why it happens (a process, not a villain)",
+  "not your fault",
+  "what changes (the real number)",
+  "the ask: relatable line + Download gm.markets to start trading"
+ ],
+ "ingredients": {
+  "edit_route": "pipeline/render_carousel.mjs + templates/carousel/slide.html",
+  "figure_model": "gpt-image-2 via pipeline/gen_figures.py — locked robed-statue STYLE, transparent, alpha-trimmed; one statue on every content slide; library reuse allowed when quota is gone",
+  "render": {
+   "aspect": "1:1",
+   "resolution": "1080x1080"
+  },
+  "palette": {
+   "bg": "#f6f0e4",
+   "ink": "#161511",
+   "mint": "#1BD688",
+   "green": "#138957",
+   "red": "#b64038"
+  },
+  "type": {
+   "family": "Archivo",
+   "headline": "700 sentence case",
+   "body": "400 + inline bold",
+   "signoff": "600"
+  },
+  "diagrams": [
+   "receipt",
+   "journey (13 line icons)",
+   "bignum + ticks",
+   "table"
+  ],
+  "layout_rules": [
+   "no cards — the background is the container",
+   "big-number slides: number left, statue right",
+   "text never touches the figure (per-line collision after font + image load)"
+  ],
+  "copy_rules": [
+   "simple English",
+   "no em dashes anywhere",
+   "punch at friction, never at a party",
+   "one countable thing per post",
+   "no education/advice label (owner decision 2026-08-31)",
+   "keep each post's honest sentence"
+  ],
+  "brand_assets": {
+   "tokens": "brand.tokens.json",
+   "logo": "brand/assets/gm-logo.svg",
+   "figures": "brand/assets/figures/"
+  }
+ },
+ "parameters": [
+  {
+   "name": "feature",
+   "plain": "the one product feature this post is about",
+   "default": null
+  },
+  {
+   "name": "five_lines",
+   "plain": "friction, why, not your fault, what changes, the ask",
+   "default": null
+  },
+  {
+   "name": "chips",
+   "plain": "four short labels above the headlines",
+   "default": null
+  },
+  {
+   "name": "diagram",
+   "plain": "which block explains it: receipt, journey, bignum or table",
+   "default": "bignum"
+  },
+  {
+   "name": "figure_subjects",
+   "plain": "one robed statue subject per content slide",
+   "default": null
+  }
+ ],
+ "stage_map": {
+  "feature": [
+   "intake",
+   "script",
+   "board"
+  ],
+  "five_lines": [
+   "script",
+   "board"
+  ],
+  "chips": [
+   "script",
+   "board"
+  ],
+  "diagram": [
+   "board"
+  ],
+  "figure_subjects": [
+   "board"
+  ]
+ },
+ "gates": [
+  "so-what gate on line 1",
+  "CTA maps one-to-one to the argument",
+  "feature exists in the product's own Terms, else HOLD",
+  "rendered swipe",
+  "publish check: swipe order, music at compose time, native schedule"
+ ],
+ "cost_per_run": {
+  "layout_inr": 0,
+  "figures": "4 x gpt-image-2 (~5.5k image tokens each), or 0 with library reuse"
+ }
+}

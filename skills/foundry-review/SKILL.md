@@ -86,6 +86,7 @@ early page is honest about the hole rather than looking finished.
 | **The cut** | *what will this actually feel like* | script beats + plates, played in real time |
 | Two-column script | are these the right words | `02-script.json` beats, 5-slot visual, delivery cues |
 | Storyboard | is this the right look | `03-board/` keyframes, status, est_cost |
+| **The swipe** (carousel posts) | does slide 1 earn slide 2 | same keyframes, drawn at 4:5 in swipe order, labelled "slide" |
 | Audio & motion | does the performance land | `04-assets/`, `05-cut/` embedded players |
 | Evidence ledger | is every number real | citations resolved against `evidence/manifest.json` |
 | Lint | what fails | `02-script.json` lint block |
@@ -93,6 +94,12 @@ early page is honest about the hole rather than looking finished.
 | Reference deconstruction | what did we take, what did we refuse | `templates/<code>.json` |
 | Caption | ship-ready copy | script caption, one-click copy |
 | What's still owed | what is left | derived from which stages exist |
+
+**Frame shape follows the post.** `post_shape()` in `engine/review.py` reads
+`post_type` (and any explicit `aspect`) and sets the `--frame-ar` CSS variable
+plus the unit word: a reel is a 9:16 "moment", a carousel is a 4:5 "slide", an
+image post is a "frame". Judging a carousel gate on 9:16 crops is judging it on
+a lie — and the carousel craft rules live in **foundry-carousel**, not here.
 
 ## The cut is the point
 

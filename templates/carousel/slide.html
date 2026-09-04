@@ -1,0 +1,263 @@
+<!doctype html>
+<meta charset="utf-8"><title>slide</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#f6f0e4; --ink:#161511; --ink2:#585448; --ink3:#8b8578;
+    --mint:#1BD688; --green:#138957; --red:#b64038;
+    --grid:rgba(22,21,17,.06);
+    --sans:'Archivo',-apple-system,'Helvetica Neue',Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1080px;height:1080px}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);
+       -webkit-font-smoothing:antialiased;position:relative;overflow:hidden}
+  .grid{position:absolute;inset:0;z-index:0;
+    background-image:linear-gradient(var(--grid) 1px,transparent 1px),
+                     linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+    background-size:74px 74px}
+  .frame{position:absolute;top:84px;left:84px;right:84px;bottom:150px;
+         display:flex;flex-direction:column;z-index:3}
+  .frame.reserve-left{left:452px}
+  .frame.reserve-right{right:452px}
+  /* a diagram shares the row with a statue: the diagram takes the far column */
+  .frame.vleft #viz{margin-left:350px}
+  .frame.vright #viz{margin-right:350px}
+  .frame.vleft .receipt,.frame.vright .receipt,
+  .frame.vleft .journey,.frame.vright .journey,
+  .frame.vleft .checks,.frame.vright .checks{max-width:none}
+  .chip{align-self:flex-start;background:var(--mint);color:var(--ink);
+        font-weight:700;font-size:24px;letter-spacing:.14em;text-transform:uppercase;
+        padding:14px 24px}
+  h1{margin-top:44px;font-weight:700;line-height:1.14;letter-spacing:-.015em;
+     font-size:var(--h1,64px);text-wrap:balance}
+  h1 em{font-style:normal;color:var(--green)}
+  .body{margin-top:26px;font-size:var(--bd,30px);line-height:1.45;color:var(--ink2);font-weight:400}
+  .body b{color:var(--ink);font-weight:600}
+  /* receipt — one visible line, the rest greyed out */
+  .receipt{max-width:660px;font-size:33px;font-weight:500;width:100%}
+  .receipt .rt{font-size:21px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--ink3);margin-bottom:26px}
+  .receipt .row{display:flex;align-items:baseline;gap:14px;padding:21px 0}
+  .receipt .lead{flex:1;border-bottom:2px dotted rgba(22,21,17,.22);height:1em}
+  .receipt .shown{color:var(--green);font-weight:700}
+  .receipt .hidden-fee{color:var(--red);font-weight:600}
+  .receipt .row.dim .lab{color:var(--ink2)}
+  /* journey — steps with arrows */
+  .journey{display:flex;align-items:flex-start;gap:0;max-width:640px;width:100%}
+  .journey .st{flex:1;text-align:center;display:flex;flex-direction:column;gap:14px;align-items:center}
+  .journey .st svg{width:124px;height:124px;stroke:var(--green);stroke-width:5;fill:none;
+    stroke-linecap:round;stroke-linejoin:round}
+  .journey .st .lab{font-size:30px;font-weight:600;line-height:1.25;max-width:9ch}
+  .journey .st .sub{font-size:22px;color:var(--red);font-weight:600}
+  .journey .arr{margin-top:50px;font-size:40px;color:var(--ink3)}
+  /* big number + checklist */
+  .bignum{margin-top:40px}
+  .bignum .v{font-weight:800;font-size:148px;letter-spacing:-.03em;color:var(--green);line-height:1}
+  .bignum .vs{font-size:40px;color:var(--ink2);font-weight:600;margin-top:14px;max-width:16ch;line-height:1.3}
+  .checks{margin-top:52px;display:flex;flex-direction:column;gap:26px;font-size:32px;font-weight:500;max-width:640px}
+  .checks .c{display:flex;align-items:center;gap:18px}
+  .checks .tick{color:var(--green);font-size:32px;font-weight:800;flex:0 0 auto;line-height:1}
+  table{margin-top:36px;width:100%;border-collapse:separate;border-spacing:0;
+        font-size:var(--tbl,30px);font-weight:500}
+  th{background:var(--ink);color:var(--mint);font-weight:700;text-align:left;padding:17px 24px;
+     text-transform:uppercase;letter-spacing:.12em;font-size:21px}
+  th:last-child,td:last-child{text-align:right}
+  td{padding:15px 24px;border-bottom:2px solid rgba(22,21,17,.08)}
+  tr.hi td{background:var(--mint);color:var(--ink);font-weight:700}
+  td.yes{color:var(--green);font-weight:700} td.no{color:var(--red);font-weight:700}
+  .gloss{margin-top:auto;font-size:21px;color:var(--ink3);font-weight:400;max-width:36ch}
+  .swipe{position:absolute;left:84px;bottom:64px;font-weight:600;font-size:23px;
+         letter-spacing:.22em;color:var(--ink2);z-index:5}
+  .cut{position:absolute;bottom:0;z-index:1;height:var(--figh,58%)}
+  .cut.right{right:-70px} .cut.left{left:-70px}
+  .cut.empty{height:46%;bottom:150px} .cut.empty.right{right:84px} .cut.empty.left{left:84px}
+  .cut img{height:100%;filter:grayscale(1) contrast(1.28) brightness(.9)}
+  .cut .ph{height:100%;width:400px;border:3px dashed rgba(22,21,17,.16);border-radius:8px;
+    display:flex;align-items:center;justify-content:center;text-align:center;padding:34px;
+    color:var(--ink3);font-size:22px;line-height:1.5;font-weight:400}
+  svg.steps{position:absolute;left:0;right:0;bottom:110px;width:100%;height:300px;z-index:1}
+  .signoff{position:absolute;inset:0;z-index:4;display:flex;flex-direction:column;
+           align-items:center;justify-content:center;text-align:center;padding:110px 120px}
+  .signoff .lines{font-weight:600;font-size:58px;line-height:1.2;letter-spacing:-.015em}
+  .signoff .cta{margin-top:40px;font-size:29px;font-weight:600}
+  .signoff .cta b{color:var(--green)}
+  .signoff .logo{margin-top:88px;height:92px}
+  .signoff .disc{position:absolute;left:0;right:0;bottom:72px;font-size:21px;color:var(--ink3)}
+</style>
+<div class="grid"></div>
+<svg class="steps" id="steps" viewBox="0 0 1080 300" preserveAspectRatio="none" style="display:none">
+  <polyline fill="none" stroke="#138957" stroke-width="10" stroke-linejoin="miter"
+    points="0,268 148,268 148,214 296,214 296,172 468,172 468,104 618,104 618,132 778,132 778,64 938,64 938,24 1080,24"/>
+</svg>
+<div class="cut" id="cut"></div>
+<div class="frame" id="frame">
+  <div class="chip" id="chip"></div>
+  <h1 id="headline"></h1>
+  <div class="body" id="body"></div>
+  <div id="viz" style="margin-top:auto;margin-bottom:auto"></div>
+  <div id="table"></div>
+  <div class="gloss" id="gloss"></div>
+</div>
+<div class="swipe" id="swipe">SWIPE →</div>
+<div class="signoff" id="signoff" style="display:none">
+  <div class="lines" id="so_lines"></div>
+  <div class="cta" id="so_cta"></div>
+  <img class="logo" id="so_logo">
+  <div class="disc" id="so_disc"></div>
+</div>
+<script>
+const S = __SLIDE__, B = __BRAND__;
+const el = (id) => document.getElementById(id);
+const esc = (s) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+
+window.__layoutSettled = false;
+if (S.signoff) {
+  window.__layoutSettled = true;
+  el("frame").remove(); el("swipe").remove(); el("cut").remove();
+  el("signoff").style.display = "flex";
+  el("so_lines").innerHTML = S.signoff.lines.map(esc).join("<br>");
+  if (S.signoff.cta) el("so_cta").innerHTML = esc(S.signoff.cta).replace(/\*(.+?)\*/g, "<b>$1</b>");
+  else el("so_cta").remove();
+  if (S.signoff.logo) el("so_logo").src = S.signoff.logo; else el("so_logo").remove();
+  if (S.signoff.disclaimer) el("so_disc").textContent = S.signoff.disclaimer;
+  else el("so_disc").remove();
+} else {
+  el("signoff").remove();
+  if (S.chip) el("chip").textContent = S.chip; else el("chip").remove();
+
+  const h = S.headline || "", len = h.replace(/\*/g,"").length;
+  document.documentElement.style.setProperty("--h1",
+    len > 110 ? "46px" : len > 84 ? "52px" : len > 62 ? "58px" : len > 42 ? "64px" : "72px");
+  el("headline").innerHTML = esc(h).replace(/\*(.+?)\*/g, "<em>$1</em>");
+
+  if (S.body) el("body").innerHTML = esc(S.body).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  else el("body").remove();
+
+  const viz = el("viz");
+  if (S.receipt) {
+    const r = S.receipt;
+    viz.innerHTML = `<div class="receipt">${r.title ? `<div class="rt">${esc(r.title)}</div>` : ""}
+      ${r.rows.map(x => `<div class="row${x.shown ? "" : " dim"}">
+        <span class="lab">${esc(x.label)}</span><span class="lead"></span>
+        <span class="${x.shown ? "shown" : "hidden-fee"}">${esc(x.value)}</span></div>`).join("")}</div>`;
+  } else if (S.journey) {
+    const ICONS = {
+      exchange: '<svg viewBox="0 0 96 96"><circle cx="34" cy="40" r="18"/><circle cx="62" cy="56" r="18"/><path d="M58 22h16m0 0-7-7m7 7-7 7M38 74H22m0 0 7-7m-7 7 7 7"/></svg>',
+      send: '<svg viewBox="0 0 96 96"><path d="M14 48 82 20 62 78 46 56Zm32 8 36-36"/></svg>',
+      wait: '<svg viewBox="0 0 96 96"><circle cx="48" cy="48" r="32"/><path d="M48 30v18l12 10"/></svg>',
+      share: '<svg viewBox="0 0 96 96"><rect x="20" y="14" width="56" height="68" rx="6"/><path d="M32 32h32M32 46h32M32 60h20"/></svg>',
+      split: '<svg viewBox="0 0 96 96"><rect x="14" y="14" width="28" height="28" rx="4"/><rect x="54" y="14" width="28" height="28" rx="4"/><rect x="14" y="54" width="28" height="28" rx="4"/><rect x="54" y="54" width="28" height="28" rx="4"/></svg>',
+      coin: '<svg viewBox="0 0 96 96"><ellipse cx="48" cy="30" rx="28" ry="12"/><path d="M20 30v20c0 7 13 12 28 12s28-5 28-12V30M20 50v16c0 7 13 12 28 12s28-5 28-12V50"/></svg>',
+      chart: '<svg viewBox="0 0 96 96"><path d="M16 82h64M26 82V54m22 28V34m22 48V44"/></svg>',
+      gold: '<svg viewBox="0 0 96 96"><path d="M30 44h36l8 18H22Zm4-22h28l6 14H28ZM14 80h68"/></svg>',
+      wallet: '<svg viewBox="0 0 96 96"><rect x="14" y="26" width="68" height="50" rx="8"/><path d="M62 46h20v12H62a6 6 0 0 1 0-12Z"/></svg>',
+      mail: '<svg viewBox="0 0 96 96"><rect x="14" y="24" width="68" height="48" rx="6"/><path d="m16 28 32 26 32-26"/></svg>',
+      bank: '<svg viewBox="0 0 96 96"><path d="M14 38 48 16l34 22M20 44v28m18-28v28m20-28v28m18-28v28M14 80h68"/></svg>',
+      card: '<svg viewBox="0 0 96 96"><rect x="14" y="26" width="68" height="46" rx="8"/><path d="M14 40h68M24 60h20"/></svg>',
+      phone: '<svg viewBox="0 0 96 96"><rect x="30" y="12" width="36" height="72" rx="8"/><path d="M44 74h8"/></svg>',
+    };
+    viz.innerHTML = `<div class="journey">${S.journey.map((s, i) =>
+      (i ? '<div class="arr">→</div>' : "") +
+      `<div class="st">${ICONS[s.icon] || ""}<div class="lab">${esc(s.label)}</div>
+       ${s.sub ? `<div class="sub">${esc(s.sub)}</div>` : ""}</div>`).join("")}</div>`;
+  } else if (S.bignum) {
+    viz.innerHTML = `<div class="bignum"><div class="v">${esc(S.bignum.value)}</div>
+      ${S.bignum.sub ? `<div class="vs">${esc(S.bignum.sub)}</div>` : ""}</div>
+      ${S.bignum.checks ? `<div class="checks">${S.bignum.checks.map(c =>
+        `<div class="c"><span class="tick">✓</span>${esc(c)}</div>`).join("")}</div>` : ""}`;
+  } else viz.remove();
+
+  if (S.table) {
+    const t = S.table, w = document.createElement("table"), hd = document.createElement("tr");
+    t.columns.forEach(c => { const th = document.createElement("th"); th.textContent = c; hd.append(th); });
+    w.append(hd);
+    t.rows.forEach(r => {
+      const tr = document.createElement("tr");
+      if (r[0] === t.highlight_row) tr.className = "hi";
+      r.forEach((cell, j) => {
+        const td = document.createElement("td"); td.textContent = cell;
+        if (j === r.length - 1) td.className = /^yes$/i.test(cell) ? "yes" : /^no$/i.test(cell) ? "no" : "";
+        tr.append(td);
+      });
+      w.append(tr);
+    });
+    el("table").append(w);
+  }
+
+  const hasViz = !!(S.receipt || S.journey || S.bignum || S.table || S.bars);
+  const hasUnderText = !!(S.body || S.gloss) || hasViz;
+  // With a diagram the statue shares the frame: diagrams keep to the left
+  // (max-width above), the figure starts smaller, and the collision loop settles it.
+  if (S.figure && hasUnderText && !hasViz)
+    el("frame").classList.add(S.figure_side === "left" ? "reserve-left" : "reserve-right");
+  if (S.figure && !hasUnderText) document.documentElement.style.setProperty("--figh", "68%");
+  if (S.figure && hasViz) {
+    document.documentElement.style.setProperty("--figh", "54%");
+    el("frame").classList.add(S.figure_side === "left" ? "vleft" : "vright");
+  }
+  el("cut").classList.add(S.figure_side || "right");
+  if (S.figure) { const i = document.createElement("img"); i.src = S.figure; el("cut").append(i); }
+  else if (S.figure_brief) {
+    const d = document.createElement("div"); d.className = "ph";
+    d.textContent = "cut-out: " + S.figure_brief; el("cut").append(d);
+    el("cut").classList.add("empty");
+  } else el("cut").remove();
+
+  if (S.steps) el("steps").style.display = "block";
+  if (S.gloss) el("gloss").textContent = S.gloss; else el("gloss").remove();
+  if (!S.body && !hasViz && !S.gloss) el("headline").style.margin = "auto 0";
+  if (!S.swipe) el("swipe").remove();
+
+  // Collision pass — MUST run after the statue image has loaded: an unloaded
+  // image has no width, so measuring earlier always reports "no overlap" and
+  // the figure lands on the text. The renderer waits for __layoutSettled.
+  (() => {
+    const cut = document.getElementById("cut"), frame = el("frame");
+    const img = cut && cut.querySelector("img");
+    if (!cut || !S.figure || !img) { window.__layoutSettled = true; return; }
+    const settle = () => {
+      const texts = [...frame.querySelectorAll(
+        "h1, .body, .gloss, table, .receipt .row, .receipt .rt, .journey .st, .bignum .v, .bignum .vs, .checks .c")];
+      // measure against the visible text, not the block box: a centered headline
+      // is a full-width element even where it has no letters
+      const rectsOf = (n) => {
+        const range = document.createRange(); range.selectNodeContents(n);
+        const rs = [...range.getClientRects()].filter(r => r.width > 2);
+        return rs.length ? rs : [n.getBoundingClientRect()];
+      };
+      const GAP = 40;
+      const hits = () => {
+        const f = cut.getBoundingClientRect();
+        return texts.some(n => rectsOf(n).some(r =>
+          !(r.right < f.left + GAP || r.left > f.right - GAP ||
+            r.bottom < f.top + GAP || r.top > f.bottom - GAP)));
+      };
+      let h = parseFloat(getComputedStyle(cut).height) / 1080 * 100, g = 0;
+      while (hits() && g++ < 22 && h > 26) {
+        h -= 3;
+        document.documentElement.style.setProperty("--figh", h.toFixed(1) + "%");
+      }
+      window.__layoutSettled = true;
+    };
+    // Settle only when BOTH the statue pixels and the real font exist —
+    // measuring against the fallback font stops the shrink loop too early.
+    Promise.allSettled([img.decode(), document.fonts.ready]).then(settle);
+  })();
+
+  // fit loop — type steps down until the slide holds its content
+  (() => {
+    const f = el("frame"), root = document.documentElement;
+    let h1 = parseFloat(getComputedStyle(root).getPropertyValue("--h1")) || 64;
+    let tbl = 30, bd = 30, g = 0;
+    const over = () => f.scrollHeight > f.clientHeight + 1;
+    while (over() && g++ < 45) {
+      h1 *= 0.95; tbl *= 0.97; bd *= 0.97;
+      root.style.setProperty("--h1", h1.toFixed(1) + "px");
+      root.style.setProperty("--tbl", tbl.toFixed(1) + "px");
+      root.style.setProperty("--bd", bd.toFixed(1) + "px");
+    }
+  })();
+}
+</script>

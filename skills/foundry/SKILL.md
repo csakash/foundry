@@ -26,24 +26,33 @@ out as homework for the user.
 
 The unit of output is a **post**: video OR image. Image posts are the journey
 terminated at the storyboard — a single image post is one approved board frame,
-finished; a **carousel** is N approved frames plus the Stage-2 caption. They
-are not separate pipelines: same interview, same gates, same review page, and
-every video project produces publishable image/carousel derivatives for free.
-`post_type` (video `ugc`/`faceless`/`ambient`/`clip`/…, image single/multi,
-carousel) is locked in the brief.
+finished. A **carousel** is not "N frames plus a caption": it is its own format
+with its own grammar (slide roles, the headline ladder, the 4:5 crop law, the
+keeper slide) and it has its own craft skill — **foundry-carousel**, loaded at
+brief, script and board whenever `post_type` is carousel or multi-image.
+
+What is shared is the machinery, not the craft: same interview, same artifacts,
+same gates, same review page — which draws carousel frames at 4:5 in swipe
+order. Derivatives run both ways (approved board → carousel, carousel → reel),
+but only through the rewrite foundry-carousel specifies; a 9:16 frame with its
+VO line pasted on is not a carousel. `post_type` (video
+`ugc`/`faceless`/`ambient`/`clip`/…, image single/multi, carousel) is locked in
+the brief.
 
 ## The stage flow
 
 | Stage | Command (intent) | Artifact | Craft skills to load |
 |---|---|---|---|
-| **Interview** (interactive front door) | `/foundry interview` | lands a brief OR an account via phased interrogation | **foundry-interview** |
-| Birth an account | `/foundry birth` | `accounts/@handle/{account,charter,portfolio}.json` | foundry-interview (account mode), foundry-storytelling |
-| Intake + brief | `/foundry brief` | `00-intake.json`, `01-brief.json` | foundry-storytelling |
-| Script | `/foundry script` | `02-script.json` (two-column) | foundry-screenwriting, foundry-voice |
-| Storyboard | `/foundry board` | `03-board/` (keyframes + board.json) | foundry-storyboard |
+| **Research** (front door for a bare topic) | `/foundry research` | `00-research.json` — sources, quote-verified findings, and **the story in plain words** | **foundry-research** |
+| **Interview** (interactive front door) | `/foundry interview` | lands a brief OR an account via phased interrogation | **foundry-interview** + `hormozi-hooks`, `offer-angles`, `customer-research` |
+| Birth an account | `/foundry birth` | `accounts/@handle/{account,charter,portfolio}.json` | foundry-interview (account mode), foundry-storytelling, `product-marketing`, `social` |
+| Intake + brief | `/foundry brief` | `00-intake.json`, `01-brief.json` | foundry-storytelling + `hormozi-hooks`, `offer-angles`, `marketing-psychology`, `no-ai-slop` |
+| Script | `/foundry script` | `02-script.json` (two-column) | foundry-screenwriting, foundry-voice + `no-ai-slop`, `objection-destroyer`, `copywriting` |
+| Storyboard | `/foundry board` | `03-board/` (keyframes + board.json) | foundry-storyboard + `no-ai-slop` (every on-frame word) |
+| **Carousel / image post** (any stage, when `post_type` is carousel or image) | seed → six-slot fill (`engine/carousel_intake.py`), then the same commands, terminating at Gate 3 + publish check | `00-intake.json` carousel block + `02-script.json` slides + `03-board/` 1080×1350 stills + caption | **foundry-carousel** + `no-ai-slop`, `hormozi-hooks`, `objection-destroyer`, `social` |
 | Produce | `/foundry produce` | `04-assets/`, `05-cut/final.mp4` | foundry-voice, foundry-sound |
 | QC | `/foundry qc` | `06-qc.json` | foundry-storyboard (conformance), foundry-sound |
-| Publish + learn | `/foundry learn` | publish log, `priors.json` update | — |
+| Publish + learn | `/foundry learn` | publish log, `priors.json` update | `analytics`, `attribution`, `ab-testing` · carousels: see `catalog/briefs/publishing-instagram-carousels.md` (music is only attachable in the Instagram app, so carousels-with-music schedule natively, never through an API tool) |
 | **Review** (runs after EVERY stage) | `/foundry review` | `review.html` — the page a human judges gates from | **foundry-review** |
 | Save as pipeline | `/foundry save <name>` | `pipelines/<name>.json` — the piece frozen as a reusable recipe | — |
 | Run a pipeline | `/foundry run <name> [overrides]` | a new `work/` piece with only changed stages regenerated | craft skills of the re-run stages |
@@ -55,6 +64,9 @@ exist so the human decides idea → words → look BEFORE money is spent on moti
 **Routing rule for vague input:** a raw idea, a dropped reel URL, a screenshot,
 or "let's make something about X" routes to `/foundry interview`, not straight to
 a brief — the interview interrogates until Gate 1 can actually be judged.
+**A bare topic with no URL, claim or figure behind it routes to
+`/foundry research` first**: we crawl, source and tell the story before the
+interview has anything worth interrogating.
 `/foundry birth` with no prepared answers also runs as an interview (account
 mode). Only skip the interview when a complete brief already exists.
 
@@ -62,16 +74,26 @@ mode). Only skip the interview when a complete brief already exists.
 
 1. **Read the craft skill before doing the stage.** Writing a script without
    foundry-screenwriting loaded, or mixing audio without foundry-sound, is the
-   same violation as skipping a lint.
+   same violation as skipping a lint. **Borrowed skills count** — the packs in
+   "Borrowed craft" below are stage dependencies, not optional reading, and
+   `no-ai-slop` runs over every word a human will read (hook, VO line, on-frame
+   text, slide, caption) before that stage's gate is surfaced.
 2. **Charter is lint.** Every brief/script/board is validated against
    `accounts/@handle/charter.json` (if the account layer exists for this piece)
    plus `brand.tokens.json` banned phrases and the evidence ledger.
 3. **Cost pyramid.** Words are free, stills ₹2–20, motion ₹70–430. Iterate at the
    cheapest level that can answer the current question. Lock stills before motion.
-4. **Gates before spend.** Gate 1 brief ("right idea?"), Gate 2 script ("right
-   words?"), Gate 3 board ("right look?"), Gate 4 QC ("matches plan + legal?").
-   Surface gates to the user in chat; a rejection note becomes regeneration
-   guidance, not a new creative debate.
+4. **Gates before spend.** Gate 0 story ("is this a story worth telling?"),
+   Gate 1 brief ("right idea?"), Gate 2 script ("right words?"), Gate 3 board
+   ("right look?"), Gate 4 QC ("matches plan + legal?"). Surface gates to the
+   user in chat; a rejection note becomes regeneration guidance, not a new
+   creative debate.
+   **Gate 0 is the cheapest gate and the one never to skip.** Before a brief,
+   a hook, a post type or a thumbnail exists, the piece is told in plain words —
+   ≤120 words, the way you would tell a friend, no marketing language (linted by
+   `engine/research.py`) — and the human says whether it hooks. Producing
+   polished output for an unapproved story is a violation, not initiative: the
+   polish only makes a weak story harder to kill.
 5. **Delivery promise lock.** The brief states its lane (A deterministic /
    B captured / C generative) and motion character. If production cannot honor it,
    STOP AND ASK — never silently downgrade a motion-led piece to stills.
@@ -115,6 +137,51 @@ mode). Only skip the interview when a complete brief already exists.
    estimated by eye from the beat summaries. The Gemini beats are a description;
    the file is the evidence.
 
+
+## Borrowed craft — the skill packs every foundry install ships with
+
+The foundry owns production. It does **not** own writing, offer design, or
+channel marketing — those are borrowed from three public packs that are part of
+the default install (manifest: `engine/skill_packs.json`):
+
+| Pack | Repo | What it is for | Loaded at |
+|---|---|---|---|
+| **no-ai-slop** | `petergyang/no-ai-slop` | The human-editor lint. Kills AI cadence, hedges and generic polish while keeping the persona's voice. | brief, script, board, carousel, every caption |
+| **hormozi** | `alexsmedile/hormozi-skills` | Offer, hook and objection craft — `hormozi-hooks`, `offer-angles`, `objection-destroyer`, `value-perception`, `hormozi-offer`, `pricing-strategy`, … | interview, brief, script, carousel |
+| **marketing** | `coreyhaines31/marketingskills` | Channel + campaign craft — `social`, `copywriting`, `ad-creative`, `content-strategy`, `marketing-psychology`, `customer-research`, `analytics`, … | interview, brief, script, carousel, learn |
+
+Rules for borrowed skills:
+
+- **Install is not optional.** `python3 -m engine.skillpacks check` is part of
+  `/foundry doctor`; a GAP means the router is about to cite a skill that isn't
+  there. `python3 -m engine.skillpacks install` fetches only what is missing
+  (project `.claude/skills/` by default, `--global` for `~/.claude/skills/`) and
+  leaves alone anything the machine already has.
+- **Never edit a borrowed skill in place.** They are re-copied on upgrade. A
+  foundry-specific rule goes in `.claude/skills/foundry*/` and cites the
+  borrowed skill by name.
+- **Borrowed craft is advice; foundry lints are law.** Where a pack conflicts
+  with the charter, `brand.tokens.json` banned phrases, the evidence ledger or a
+  compliance note, the foundry rule wins — and the conflict is worth surfacing
+  at the gate in one line.
+- **They inform, they don't author.** A hook from `hormozi-hooks` or an angle
+  from `offer-angles` enters as a catalog-style candidate the brief picks and
+  records; it never bypasses Stage 0 evidence sourcing (rule 8).
+
+10. **Research is crawled, never remembered, and every finding is
+   quote-verified.** A topic is never briefed from what a model knows about it.
+   It goes through `engine/research.py`, which is free and keyless: discovery is
+   your own web search (or a URL the user gave, or the dated headline map from
+   `research news`), and reading is HTTP-first with a stdlib text pass, falling
+   back to a headless browser only for JS-gated pages. Every page is cached. A
+   finding is a claim/figure/question **plus the verbatim
+   sentence from the page that supports it**; `python3 -m engine.research check`
+   re-reads the cache and fails any quote it cannot find, so a fabricated figure
+   cannot reach a brief. A figure destined for a slide traces to a primary
+   source (regulator, ministry, exchange, filing, IR) or to two independent
+   secondaries; aggregators point, they never cite. No research stage may cost
+   money or wait on an API key — if a source needs one, it is the wrong
+   source.
 
 ## The ingredient manifest
 
@@ -206,13 +273,16 @@ else. Two classes of files, never confused:
 - **Foundry-owned (always safe to overwrite):** `.claude/skills/foundry*`,
   `engine/`, `pipeline/analyze_reel.py`, `pipelines/README.md` +
   `pipelines/example-recipe.json`, `SETUP.md`, `.env.example`,
-  `requirements.txt`, `catalog/**/example-*` + the catalog READMEs.
+  `requirements.txt`, `catalog/**/example-*` + the catalog READMEs, and every
+  **borrowed pack skill** listed in `engine/skill_packs.json` (re-copied from
+  its upstream repo, never hand-edited).
 - **User-owned (never overwrite):** `.env`, `brand/brand.tokens.json` once
   edited, every catalog entry the user added, `accounts/`, `work/`,
   `templates/`, `evidence/`, saved `pipelines/*.json` recipes.
 
 On `/foundry upgrade`: clone the repo to a temp dir, copy the foundry-owned
-paths over, run `pip install -r requirements.txt` into the venv, then run
+paths over, run `pip install -r requirements.txt` into the venv, refresh the
+borrowed packs with `python3 -m engine.skillpacks install --force`, then run
 `/foundry doctor` and report what changed (diff the skill/engine versions in
 one line each). If a user-owned file collides with a foundry-owned update
 (rare), show the diff and ask — never clobber silently.
@@ -225,9 +295,12 @@ for analysis + Nano Banana images, optional OpenAI images), local tools
 (ffmpeg, yt-dlp, Python venv, Node), and the skill/MCP layer (official Remotion
 skill → Lane A, official Playwright skill → Lane B). `/foundry doctor` = verify
 each row of SETUP.md **plus the engine contract set** (`engine/review.py`,
-`engine/evidence.py`, `engine/formats.py`, `engine/prompts/`,
+`engine/evidence.py`, `engine/formats.py`, `engine/carousel_intake.py`,
+`engine/research.py`, `engine/prompts/`,
 `pipeline/analyze_reel.py`, `brand/brand.tokens.json` — all bundled; if any is
-missing the install is incomplete: re-copy from the foundry repo) and report
+missing the install is incomplete: re-copy from the foundry repo) **plus
+`python3 -m engine.skillpacks check`** for the borrowed packs (a GAP is fixed
+with `python3 -m engine.skillpacks install`) and report
 what's missing and **which lane it degrades**
 (e.g. no fal/Higgsfield → Lane C pieces stop at the storyboard). Run it on any
 fresh clone before producing.

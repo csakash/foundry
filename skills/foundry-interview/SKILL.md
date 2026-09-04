@@ -96,6 +96,21 @@ this without googling a word?**
 1. **Post type first**: video (ugc / faceless / ambient / clip) or image
    (single / multi / carousel)? Image posts terminate the journey at the
    storyboard — say so plainly ("this one needs no video generation at all").
+   If the user handed over a bare topic and no URL/claim/figure, **stop and run
+   `/foundry research` first** (skill: foundry-research) — the interview has
+   nothing to interrogate until the crawl has produced findings and the story
+   has cleared Gate 0. Come back here with the dossier.
+   For a carousel, load **foundry-carousel** first: it owns the input contract.
+   Take the user's one seed (a link, a claim, a figure, a question, a document),
+   run `python3 -m engine.carousel_intake scaffold`, resolve what you can from
+   the seed's own source, and then ask **only** about the slots that would not
+   resolve — one round, plain language, each with a recommended default. Never
+   ask the user to fill six slots; they gave you one link, the rest is our job.
+   If `check` routes the seed to SINGLE IMAGE or NOT YET, say so plainly ("there
+   is a real number here but nothing underneath it — this is a one-chart post")
+   instead of padding a carousel to seven slides. A carousel is the cheapest
+   post in the stack, so it is the right default recommendation whenever the
+   idea is explanatory rather than performed.
    Then **format + lane** (delivery-promise lock — motion-led vs still-led vs
    captured; silently downgrading later is forbidden), via `engine/formats.py`.
 2. **Audio architecture**: locked-voice VO / native model voice / clip's own
@@ -143,7 +158,8 @@ days (a number).
 
 **Phase 2 — archetype.** Decision brief over the 7 costed archetypes (UGC
 creator ₹230–450 · ambient ₹72 · clips ₹11–17 · data ₹0 · montage ₹40–50 · news
-₹50–860 · stills/carousel ₹2–20/frame). Recommend one from the Phase 1 answers +
+₹50–860 · carousel/stills ₹0–40 per post when rendered deterministically,
+₹2–20/frame only for generated art). Recommend one from the Phase 1 answers +
 budget. This locks production physics before any creative wording.
 
 **Phase 3 — persona.** Fork: character (face-fronted) vs editorial (mission,

@@ -60,8 +60,11 @@ board is approving the invoice.**
 - Approved Lane-C frame = `start_image` (Higgsfield) or identity reference (fal).
   Chaining: a mid-action frame extracted from beat N's clip is a valid opening
   frame for beat N+1 — free continuity, persona look inherits.
-- Image posts = one approved frame shipped. Carousels = N frames + Stage-2 copy.
-  Same gates, zero extra process.
+- Image posts = one approved frame shipped. **Carousels are not that** — they
+  render 1080×1350, carry slide roles and a headline ladder, and crop to 1:1 in
+  the profile grid. Load **foundry-carousel** before boarding one, and before
+  turning an approved 9:16 board into a carousel derivative (frames must be
+  re-cropped and the copy rewritten to slide roles, never pasted across).
 
 ## QC conformance (Gate 4 reuse)
 

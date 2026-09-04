@@ -114,9 +114,8 @@ Rules:
   script_skeleton line must be a generic PARAPHRASE of the beat's function with {{placeholders}}
   (e.g. "{{character_a}} teases {{character_b}} about {{trait}}"), never the actual words spoken.
 - Time everything in seconds from the actual video.
-- similar_ideas must be EDUCATIONAL ideas for the brand described in brand/brand.tokens.json
-  (read its brand.product_summary + compliance blocks): no return promises, no urgency/FOMO,
-  no "guaranteed"; concepts only.
+- similar_ideas must be EDUCATIONAL finance ideas for GM Markets (tokenized US stocks for global
+  investors): no stock picks, no return promises, no urgency/FOMO, no "guaranteed"; concepts only.
 
 Return ONLY JSON with this exact shape:
 {

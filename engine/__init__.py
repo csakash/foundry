@@ -1,1 +1,1 @@
-"""Creator Foundry — shared production libraries (the engine contract set)."""
+"""GM content engine — shared production libraries."""

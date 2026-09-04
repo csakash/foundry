@@ -36,10 +36,16 @@ KINDS = (
     "company_guidance",   # a number the company itself stated (release / call)
     "analyst_estimate",   # a consensus or average estimate, with its publisher
     "market_close",       # a settled daily close or single-session move
+    # Added 2026-08-31 for the "US locked out" carousel: a scope/policy fact a
+    # named party states about its own service ("available in 110+ countries,
+    # not in the US"). It is a number with a source and no file, like the three
+    # above, but it is not a market figure — mislabelling it as guidance would
+    # have made the ledger lie about what kind of claim it is.
+    "stated_policy",
 )
 
 # Which figure kinds put_figure() will accept.
-FIGURE_KINDS = ("company_guidance", "analyst_estimate", "market_close")
+FIGURE_KINDS = ("company_guidance", "analyst_estimate", "market_close", "stated_policy")
 
 
 def utcnow() -> str:

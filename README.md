@@ -1,6 +1,6 @@
 # Creator Foundry
 
-A suite of eight [Claude Code](https://claude.com/claude-code) skills that turn short-form video production into a staged, gated, artifact-driven process — the way a build pipeline treats code.
+A suite of ten [Claude Code](https://claude.com/claude-code) skills that turn short-form content production — video and carousel — into a staged, gated, artifact-driven process, the way a build pipeline treats code.
 
 No app, no UI. Claude Code is the engine, the skills are the product, and every stage writes a typed JSON artifact to disk that the next stage reads. A human approves at four gates, and the expensive stages never run before the cheap ones are locked.
 
@@ -24,6 +24,10 @@ The Foundry forces a **cost pyramid**: words are free, stills cost a rupee or tw
 | **`foundry-voice`** | Voice performance direction — making TTS sound directed rather than read. Performance plans, the sample gate, lipsync routing, locked persona voices. |
 | **`foundry-sound`** | Mix craft in numbers, not taste — ducking levels, loudness targets, SFX timing, the AI-TTS processing chain, silent-master rules for trending-audio formats. |
 | **`foundry-review`** | The review-page craft. Never hand a human raw JSON: every gate is surfaced as a single readable HTML page derived from the artifacts. |
+| **`foundry-research`** | The research layer. A bare topic becomes a sourced dossier: free, keyless discovery, HTTP-first page reading, tiered sources, findings that carry a verbatim quote re-verified against the cached page, and **Gate 0** — the story told in ≤120 plain words, approved before anything is designed. |
+| **`foundry-carousel`** | Carousel craft. Two ladders (the six-role news explainer and the five-line feature post), the one-seed/six-slot input contract, the so-what gate on every cover, a house style decomposed from real posts, a deterministic 1080×1080 renderer with floating diagram blocks, and a locked statue-figure generator. |
+
+The suite also ships with three **borrowed skill packs** it loads at named stages — [no-ai-slop](https://github.com/petergyang/no-ai-slop), [hormozi-skills](https://github.com/alexsmedile/hormozi-skills) and [marketingskills](https://github.com/coreyhaines31/marketingskills). `python3 -m engine.skillpacks install` fetches whatever a machine is missing.
 
 ## Install
 
@@ -42,10 +46,11 @@ git clone https://github.com/csakash/foundry.git /tmp/foundry && cp -R /tmp/foun
 Then copy the catalog scaffold and setup manifest into your project root (skip if you already have your own):
 
 ```bash
-cp -R /tmp/foundry/{catalog,pipelines,engine,pipeline,brand,SETUP.md,.env.example,requirements.txt} .
+cp -R /tmp/foundry/{catalog,pipelines,engine,pipeline,templates,brand,SETUP.md,.env.example,requirements.txt} .
+python3 -m engine.skillpacks install   # the three borrowed skill packs
 ```
 
-Restart Claude Code (or start a new session) and the eight skills appear in the skill list. Fill `.env` (see `SETUP.md`), then run `/foundry doctor` to verify the stack.
+Restart Claude Code (or start a new session) and the ten skills appear in the skill list. Fill `.env` (see `SETUP.md`), then run `/foundry doctor` to verify the stack.
 
 ## Update
 
@@ -71,6 +76,7 @@ The interview never produces an artifact from the first message. It runs phased:
 
 | Stage | Intent | Artifact |
 |---|---|---|
+| Research | `/foundry research` | `00-research.json` — sources, quote-verified findings, the story in plain words |
 | Interview | `/foundry interview` | a brief, or a new account charter |
 | Birth an account | `/foundry birth` | `accounts/@handle/{account,charter,portfolio}.json` |
 | Intake + brief | `/foundry brief` | `00-intake.json`, `01-brief.json` |
@@ -83,8 +89,9 @@ The interview never produces an artifact from the first message. It runs phased:
 
 Artifacts land under `work/<account>/<slug>/`.
 
-### The four gates
+### The five gates
 
+0. **Gate 0 — story.** Is this a story worth telling? Told in ≤120 plain words, no marketing language, before a brief exists. The cheapest gate and the one never to skip.
 1. **Gate 1 — brief.** Right idea?
 2. **Gate 2 — script.** Right words?
 3. **Gate 3 — board.** Right look?
@@ -135,7 +142,13 @@ The repo is batteries-included — the skills (craft layer) **and** the engine t
 
 | Path | What it provides |
 |---|---|
-| `skills/` | the eight foundry skills |
+| `skills/` | the ten foundry skills |
+| `engine/research.py` | the research layer — discovery, HTTP-first reading, tiered sources, verbatim-quote verification, the Gate-0 lint |
+| `engine/carousel_intake.py` | the carousel input contract — one seed in, six slots out, the so-what gate |
+| `engine/skillpacks.py` | installs and verifies the three borrowed skill packs |
+| `pipeline/analyze_carousel.py` | decomposes a reference carousel slide by slide (the reel analyzer drops image posts) |
+| `pipeline/render_carousel.mjs` + `templates/carousel/slide.html` | deterministic 1080×1080 slides: chip, headline, receipt / journey / big-number blocks, statue, sign-off — ₹0 per slide |
+| `pipeline/gen_figures.py` | the cut-out statue generator: one locked style string, transparent, alpha-trimmed, backoff on throttle |
 | `engine/review.py` | renders a piece's artifacts → one self-contained `review.html` (every gate is judged from this page, never raw JSON) |
 | `engine/evidence.py` | the citable ledger — every on-screen number resolves to an id |
 | `engine/formats.py`, `engine/prompts/` | the format registry and the hook / shot / brief / voice slot templates |
