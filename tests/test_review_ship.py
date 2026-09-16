@@ -322,3 +322,127 @@ def test_sheet_approval_refuses_a_recast_creator(ws):
     Image.open(ws.dir("personas") / "nova/candidates/c2.png").save(master)
     with pytest.raises(FoundryError, match="changed after these candidates"):
         sheet.approve(ws, p, "c1")
+
+
+# ---------------------------------------------------------------- ship review cycle 3 (verification)
+def test_a_pack_is_unusable_while_its_creator_is_recast(ws, monkeypatch):
+    from foundry import spec as spec_mod
+    locked(ws, "recast")
+    assert cast.pack_problem(ws, "recast") is None
+    video(ws.root / "clip.mp4", seconds=21)
+    real = cast.measure_sheet
+
+    def drifted(*a, **k):
+        m = real(*a, **k)
+        m["row"] = {**m["row"], "lum": m["row"]["lum"] + 40}
+        return m
+    monkeypatch.setattr(cast, "measure_sheet", drifted)
+    with pytest.raises(Blocked):
+        cast.remeasure(ws, "recast")
+    assert (ws.dir("personas") / "recast/pack.json").exists()  # kept ...
+    assert "re-cast" in cast.pack_problem(ws, "recast")        # ... but not usable
+    p = spec_mod.new(ws, "@t", "onrecast")
+    with pytest.raises(FoundryError, match="no usable locked creators"):
+        spec_mod.resolve(ws, p)
+
+
+def test_a_pack_is_unusable_when_its_images_change(ws):
+    locked(ws, "swapped")
+    d = ws.dir("personas") / "swapped"
+    Image.open(d / "candidates/c2.png").save(d / "master.png")
+    assert "master.png changed" in cast.pack_problem(ws, "swapped")
+
+
+def test_unreadable_inputs_block_instead_of_crashing(ws, tmp_path):
+    p = building(ws, "unreadable")
+    outside = tmp_path / "elsewhere.mp4"
+    video(outside, seconds=21)
+    (ws.root / "clip.mp4").unlink()
+    (ws.root / "clip.mp4").symlink_to(outside)  # the product clip now resolves outside the workspace
+    with pytest.raises(Blocked, match="inputs.changed_after_approval"):
+        Piece.open(ws, p.ref).lock
+
+
+def test_old_locks_with_byte_hashed_packs_still_verify(ws):
+    from foundry.util import sha256_file
+    p = building(ws, "oldlock")
+    lock = read_json(p.rel("approved.lock.json"))
+    lock["inputs"].pop("persona/pack")
+    lock["inputs"]["persona/pack.json"] = sha256_file(ws.dir("personas") / "nova/pack.json")
+    lock.pop("input_stats")
+    write_json(p.rel("approved.lock.json"), lock)
+    assert Piece.open(ws, p.ref).lock["fix_cycles"] == 2
+
+
+def test_input_stats_are_refreshed_after_a_clean_rehash(ws):
+    p = building(ws, "refresh")
+    pack_path = ws.dir("personas") / "nova/pack.json"
+    pack = read_json(pack_path)
+    pack["cast_touches"] = 7  # bytes change, build fields do not
+    write_json(pack_path, pack)
+    before = read_json(p.rel("approved.lock.json"))["input_stats"]
+    Piece.open(ws, p.ref).lock
+    after = read_json(p.rel("approved.lock.json"))["input_stats"]
+    assert after != before and after == Piece.open(ws, p.ref)._input_stats()
+
+
+def test_sheets_rendered_before_creator_hashes_still_approve(ws):
+    from foundry import sheet, spec as spec_mod
+    locked(ws)
+    video(ws.root / "clip.mp4", seconds=21)
+    p = spec_mod.new(ws, "@t", "legacy")
+    spec_mod.set_values(ws, p, ["hook.line=ok", "assets.0.path=clip.mp4"])
+    sheet.render(ws, p, n=2, provider=FakeImages())
+    st = p.status
+    st.pop("sheet_creator_sha256")
+    p.save_status(st)
+    assert sheet.approve(ws, p, "c1")["approved"] == "c1"
+
+
+def test_json_writes_never_leave_temp_files_and_cli_values_stay_finite(ws, tmp_path):
+    from foundry.util import parse_value
+    target = tmp_path / "jsonwrites"
+    target.mkdir()
+    with pytest.raises(ValueError):
+        write_json(target / "a.json", {"x": float("nan")})
+    assert [f.name for f in target.iterdir()] == []
+    for raw in ("NaN", "Infinity", "-Infinity"):
+        with pytest.raises(FoundryError, match="finite"):
+            parse_value(raw)
+
+
+def test_loudness_measures_are_json_safe(monkeypatch, tmp_path):
+    from engine.qc import loudness
+    monkeypatch.setattr(loudness, "integrated", lambda path: float("-inf"))
+    for kind in ("silent", "clip"):
+        r = loudness.check(tmp_path / "x.mp4", kind)
+        assert r["measures"]["integrated_lufs"] is None
+        write_json(tmp_path / f"{kind}.json", r)
+
+
+def test_a_malformed_piece_makes_the_creator_guard_conservative(ws):
+    locked(ws)
+    bad = ws.dir("work") / "@t" / "broken"
+    bad.mkdir(parents=True)
+    (bad / "status.json").write_text("{not json")
+    with pytest.raises(FoundryError, match="unreadable"):
+        cast.remeasure(ws, "nova")
+
+
+def test_an_agent_without_a_piece_may_touch_none(ws, monkeypatch):
+    p = building(ws, "noref")
+    monkeypatch.setenv("FOUNDRY_AGENT", "1")
+    monkeypatch.chdir(ws.root)
+    from foundry import cli
+    import contextlib
+    import io
+    import json
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+        code = cli.main(["status", p.ref, "--json"])
+    assert code == 2 and "may not touch" in json.loads(buf.getvalue())["error"]
+
+
+def test_build_prompt_retry_line_names_the_piece(ws):
+    p = building(ws, "retry")
+    assert f"`foundry prompt {p.ref} --kind motion --shot <shot id> --guidance-from clip`" in build.prompt(ws, p, 2)

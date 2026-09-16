@@ -28,12 +28,18 @@ def integrated(path: str | Path) -> float | None:
     return float("-inf") if v == "-inf" else float(v)
 
 
+def _json_safe(v: float | None) -> float | None:
+    """-inf LUFS (pure silence) is recorded as None: QC reports are JSON and never hold infinities."""
+    import math
+    return None if v is None or not math.isfinite(v) else v
+
+
 def check(path: str | Path, kind: str, target: float = TARGET_LUFS, tol: float = 2.0) -> dict[str, Any]:
     i = integrated(path)
     if kind == "silent":
         ok = i is None or i <= -69.0
-        return result(ok, {"integrated_lufs": i, "kind": kind},
+        return result(ok, {"integrated_lufs": _json_safe(i), "kind": kind},
                       f"The spec says silent but the cut has audio at {i} LUFS; strip or mute the audio.")
     ok = i is not None and abs(i - target) <= tol
-    return result(ok, {"integrated_lufs": i, "kind": kind, "target": target, "tol": tol},
+    return result(ok, {"integrated_lufs": _json_safe(i), "kind": kind, "target": target, "tol": tol},
                   f"Loudness {i} LUFS is outside {target}±{tol}; normalise the mix.")

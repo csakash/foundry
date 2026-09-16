@@ -44,7 +44,9 @@ def new(ws: Workspace, account: str, slug: str, recipe: str | None = None) -> Pi
 
 
 def _packs(ws: Workspace) -> list[str]:
-    return sorted(d.parent.name for d in ws.dir("personas").glob("*/pack.json"))
+    """Creators whose packs can be used right now (locked, on the images they were approved with)."""
+    return sorted(d.parent.name for d in ws.dir("personas").glob("*/pack.json")
+                  if cast.pack_problem(ws, d.parent.name) is None)
 
 
 def _last_shipped(ws: Workspace, account: str) -> dict[str, Any] | None:
@@ -81,12 +83,13 @@ def resolve(ws: Workspace, piece: Piece) -> dict[str, Any]:
         elif len(packs) == 1:
             spec["creator"], rf["creator"] = packs[0], "only_option"
     if not packs:
-        raise FoundryError("no locked creators in personas/; run `foundry cast <name>` first")
+        raise FoundryError("no usable locked creators in personas/; run `foundry cast <name>` (or finish a re-cast) first")
     if not spec.get("creator"):
         questions.append({"id": "creator", "slot": "creator", "question": "Which creator is in the reaction shot?",
                           "options": packs, "recommended": packs[0]})
     elif spec["creator"] not in packs:
-        raise FoundryError(f"creator {spec['creator']!r} has no pack.json (have: {', '.join(packs)})")
+        raise FoundryError(cast.pack_problem(ws, spec["creator"]) or
+                           f"creator {spec['creator']!r} cannot be used (have: {', '.join(packs)})")
 
     # 3. hook line: always the human's words
     if not get_path(spec, "hook.line"):

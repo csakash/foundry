@@ -195,8 +195,8 @@ def dispatch(a: argparse.Namespace) -> tuple[Any, int]:
 
     piece = Piece.open(ws, a.piece)
     agent_ref = os.environ.get(AGENT_ENV, "")
-    if agent_ref not in ("", "1") and piece.ref != agent_ref:
-        raise FoundryError(f"this build agent works on {agent_ref}; it may not touch {piece.ref}")
+    if agent_ref and piece.ref != agent_ref:
+        raise FoundryError(f"this build agent works on {agent_ref or 'no piece'}; it may not touch {piece.ref}")
     if a.cmd == "fetch":  # the download runs unlocked; only the ingest holds the piece
         mp4 = loop.download_clip(ws, piece, a.url, job=a.job, shot=a.shot)
         try:

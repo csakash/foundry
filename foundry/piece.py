@@ -236,15 +236,25 @@ class Piece:
                              "spec.json no longer matches the approved hash; QC limits cannot be trusted")
         if "inputs" not in lock:  # approved before inputs were locked
             return lock
-        if lock.get("input_stats") and self._input_stats() == lock["input_stats"]:
-            return lock  # nothing on disk changed size or mtime since approval: no need to re-hash a large clip
         try:
+            stats = self._input_stats()
+            if lock.get("input_stats") and stats == lock["input_stats"]:
+                return lock  # nothing on disk changed size or mtime since approval: no need to re-hash a large clip
             current = self.locked_inputs()
-        except (FileNotFoundError, FoundryError) as e:
-            raise self.block("inputs.changed_after_approval", f"an approved input is missing: {e}")
+        except (OSError, FoundryError) as e:
+            raise self.block("inputs.changed_after_approval", f"an approved input is missing or unreadable: {e}")
+        if "persona/pack.json" in lock["inputs"]:  # locks written before packs were hashed by their build fields
+            current.pop("persona/pack", None)
+            current["persona/pack.json"] = sha256_file(self.ws.dir("personas") / self.spec["creator"] / "pack.json")
         changed = sorted(k for k in set(lock["inputs"]) | set(current) if lock["inputs"].get(k) != current.get(k))
         if changed:
             raise self.block("inputs.changed_after_approval", "changed since approval: " + ", ".join(changed))
+        if stats != lock.get("input_stats"):  # contents verified identical: remember the new stats, skip re-hashing
+            with self.exclusive():
+                fresh = read_json(self.path / LOCK)
+                fresh["input_stats"] = stats
+                write_json(self.path / LOCK, fresh)
+            lock["input_stats"] = stats
         return lock
 
     def set_fix_cycles(self, n: int) -> None:

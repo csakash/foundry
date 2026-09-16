@@ -195,10 +195,14 @@ def pieces_using(ws: Workspace, name: str) -> list[str]:
     from .piece import Piece  # local import: piece imports workspace only, cast is imported by spec
     out = []
     for p in Piece.all(ws):
-        st = p.status
-        spec = read_json(p.rel("spec.json")) or {}
-        if spec.get("creator") == name and st["state"] in ACTIVE_PIECE_STATES:
-            out.append(p.ref)
+        try:
+            st = p.status
+            spec = read_json(p.rel("spec.json")) or {}
+        except (ValueError, OSError):  # an unreadable piece might be built on this creator: be conservative
+            out.append(f"{p.path.relative_to(ws.root)} (unreadable; fix or remove it)")
+            continue
+        if spec.get("creator") == name and st.get("state") in ACTIVE_PIECE_STATES:
+            out.append(f"{st.get('account')}/{st.get('slug')}")
     return out
 
 
@@ -278,6 +282,7 @@ def approve(ws: Workspace, name: str, story: str | None = None, wardrobe: str | 
         "look": st.get("brief", ""),
         "face_box": m["face_box"],
         "skin_box": m.get("skin_box"),
+        "images": m["images"],
         "sheet_check": override or {"gate": "measured", "matched_panels": m["sheet"].get("matched_panels")},
         "skin_rule": skin_rule(m["master"]),
         "camera_rule": CAMERA_RULE,
@@ -297,8 +302,29 @@ def approve(ws: Workspace, name: str, story: str | None = None, wardrobe: str | 
     return pack
 
 
-def load_pack(ws: Workspace, name: str) -> dict[str, Any]:
-    pack = read_json(pdir(ws, name) / "pack.json")
+def pack_problem(ws: Workspace, name: str) -> str | None:
+    """Why this creator's pack must not be used right now, or None when it is usable.
+
+    A pack is usable only while the creator is locked AND master.png/sheet.png are still the images the pack
+    was approved with: during a re-cast (picking, blocked, or measured but not yet approved) the old pack
+    describes a face that is no longer on disk."""
+    d = pdir(ws, name)
+    pack = read_json(d / "pack.json")
     if not pack:
-        raise FoundryError(f"personas/{name} has no pack.json; cast it first (foundry cast {name})")
-    return pack
+        return f"personas/{name} has no pack.json; cast it first (foundry cast {name})"
+    st = state(ws, name)
+    if st.get("state") != "locked":
+        return f"personas/{name} is being re-cast ({st.get('state')}); approve it again before using it"
+    images = pack.get("images")
+    if images:
+        for key, file in (("master_sha256", "master.png"), ("sheet_sha256", "sheet.png")):
+            if not (d / file).exists() or sha256_file(d / file) != images.get(key):
+                return f"personas/{name}/{file} changed since the pack was approved; re-cast it"
+    return None
+
+
+def load_pack(ws: Workspace, name: str) -> dict[str, Any]:
+    problem = pack_problem(ws, name)
+    if problem:
+        raise FoundryError(problem)
+    return read_json(pdir(ws, name) / "pack.json")

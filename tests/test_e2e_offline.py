@@ -321,7 +321,7 @@ def test_agent_cannot_take_human_steps(ws: Path, monkeypatch):
     cast_nova(root)
     sh(root, "new", "@test", "agent")
     sh(root, "set", "@test/agent", HOOK, ASSET)
-    monkeypatch.setenv("FOUNDRY_AGENT", "1")
+    monkeypatch.setenv("FOUNDRY_AGENT", "@test/agent")  # the build session is scoped to its piece
     code, res = sh(root, "ls")
     assert code == 2 and "-C is not allowed" in res["error"]  # the agent cannot point foundry at another workspace
     monkeypatch.chdir(root)

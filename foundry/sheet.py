@@ -194,7 +194,8 @@ def approve(ws: Workspace, piece: Piece, candidate: str) -> dict[str, Any]:
     src = piece.rel("sheet", "candidates", f"{candidate}.png")
     if not src.exists():
         raise FoundryError(f"no candidate {candidate} on the sheet")
-    if piece.status.get("sheet_creator_sha256") != _creator_hashes(ws, piece.spec["creator"]):
+    rendered_with = piece.status.get("sheet_creator_sha256")
+    if rendered_with is not None and rendered_with != _creator_hashes(ws, piece.spec["creator"]):
         raise FoundryError("the creator's master or sheet changed after these candidates were rendered; render the "
                            "sheet again")
     if piece.status.get("sheet_spec_sha256") != piece.spec_hash():

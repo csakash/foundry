@@ -52,7 +52,7 @@ def prompt(ws: Workspace, piece: Piece, cycles: int) -> str:
         f"   jobs_wait until terminal. `foundry settle {ref} <entry> --ok --ref <job_id>` (or --failed if the job failed).",
         f"7. `foundry fetch {ref} --url <result url> --job <job_id> --shot <shot id>`. Look at clips/<shot id>/frames/.",
         f"   Record the hands verdict for stage clip. `foundry qc {ref} --stage clip`. If red and not blocked: repeat 4-7 with",
-        "   `foundry prompt --kind motion --shot <shot id> --guidance-from clip`.",
+        f"   `foundry prompt {ref} --kind motion --shot <shot id> --guidance-from clip`.",
         "   Never resubmit a generation whose outcome is unknown after a timeout; reuse the job id.",
         "",
         "STAGE CUT",
@@ -74,7 +74,7 @@ def argv(ws: Workspace, piece: Piece, mode: str, cycles: int) -> list[str]:
         raise FoundryError(f"providers.video.mcp_server {server!r} must match {SERVER_RE.pattern}")
     piece_dir = piece.path.relative_to(ws.root)  # the agent reads only its own piece
     allowed = ["Bash(foundry:*)", f"Read(./{piece_dir}/**)"] + [f"mcp__{server}__{t}" for t in VIDEO_TOOLS]
-    # dontAsk + the allowlist already confine reads to work/. Never deny a home-wide pattern: the
+    # dontAsk + the allowlist already confine reads to this piece's directory. Never deny a home-wide pattern: the
     # workspace itself usually lives under the home directory and deny rules beat allow rules.
     denied = (["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Read(./.env)", "Read(~/.ssh/**)",
                "Read(~/.aws/**)", "Read(~/.config/**)"]

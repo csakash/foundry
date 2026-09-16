@@ -42,10 +42,14 @@ def write_json(path: str | Path, data: Any) -> Path:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=f".{p.name}.")
-    with os.fdopen(fd, "w") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False, allow_nan=False)
-        f.write("\n")
-    os.replace(tmp, p)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False, allow_nan=False)
+            f.write("\n")
+        os.replace(tmp, p)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
     return p
 
 
@@ -113,10 +117,14 @@ def set_path(data: dict[str, Any], dotted: str, value: Any) -> None:
 
 def parse_value(raw: str) -> Any:
     """CLI values: JSON when it parses (numbers, lists, objects, true/false/null), else the string."""
+    import math
     try:
-        return json.loads(raw)
+        value = json.loads(raw)
     except (json.JSONDecodeError, ValueError):
         return raw
+    if isinstance(value, float) and not math.isfinite(value):
+        raise FoundryError(f"{raw!r} is not a finite number")
+    return value
 
 
 # ---------------------------------------------------------------- input guards
