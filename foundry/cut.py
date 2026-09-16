@@ -21,7 +21,7 @@ def build(ws: Workspace, piece: Piece) -> dict[str, Any]:
     piece.lock  # refuses if the spec changed after approval
     spec = piece.spec
     cd = piece.rel("cut")
-    rebuild = (cd / "final.mp4").exists()
+    rebuild = (cd / "cut.json").exists()  # a final.mp4 without its manifest is an interrupted build, not a cut
     if rebuild:
         if read_json(piece.rel("qc", "cut.json")) is None:
             raise FoundryError("a cut exists and has not been checked; run foundry qc --stage cut first")

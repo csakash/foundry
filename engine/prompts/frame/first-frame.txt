@@ -13,5 +13,5 @@ WARDROBE: {wardrobe}. Opaque everyday fabric.
 
 REALISM: a real, unedited frame from a phone video, not a photoshoot. Real pores and natural shine, separated hair strands and flyaways, slight motion softness on a moving hand, anatomically correct hands with five fingers, natural phone-camera noise. Candid and unposed.
 
-NEGATIVE: any text, captions, subtitles, watermark, logo, app UI, emoji; a different person or face; skin tone different from the references; studio lighting; ring light; glamour retouching; airbrushed or plastic skin; face fully hidden; extra or missing fingers; malformed hands; see-through clothing; cartoon, CGI, 3D render.
+NEGATIVE: any text, captions, subtitles, watermark, logo, app UI, emoji; a different person or face; skin tone different from the references; studio lighting; ring light; glamour retouching; airbrushed or plastic skin; face fully hidden; extra or missing fingers; malformed hands; revealing or transparent-looking clothing; cartoon, CGI, 3D render.
 {guidance}

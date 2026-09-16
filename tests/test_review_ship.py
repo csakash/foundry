@@ -197,3 +197,128 @@ def test_doctor_notes_open_transfers_without_failing(ws):
     res = ops.doctor(ws, offline=True)
     note = next(r for r in res["checks"] if r["check"] == "transfer hosts")
     assert note["status"] == "note" and "transfer_hosts" in note["detail"]
+
+
+# ---------------------------------------------------------------- ship review cycle 2 (adversarial)
+def test_money_values_must_be_finite(ws):
+    p = building(ws, "nan")
+    for bad in (float("nan"), float("inf")):
+        with pytest.raises(FoundryError, match="finite"):
+            p.reserve("video_credits", bad, "x")
+    eid = p.reserve("video_credits", 32.5, "ok")
+    with pytest.raises(FoundryError, match="finite"):
+        p.settle(eid, ok=True, actual=float("nan"))
+    with pytest.raises(SystemExit):  # argparse refuses before the command runs
+        run_cli(ws.root, "reserve", p.ref, "--unit", "video_credits", "--amount", "nan")
+
+
+def test_settling_over_the_ceiling_is_recorded_then_blocks(ws):
+    p = building(ws, "over")
+    inv = p.invoice
+    inv.update(frozen=True, ceilings={"video_credits": 40}, baseline={"video_credits": 0})
+    write_json(p.rel("invoice.json"), inv)
+    eid = p.reserve("video_credits", 32.5, "short shot")
+    with pytest.raises(Blocked, match="budget.video_credits"):
+        p.settle(eid, ok=True, actual=65, ref="j")
+    assert p.invoice["entries"][-1]["amount"] == 65 and p.state == "blocked"
+
+
+def test_pick_and_approve_refuse_a_creator_in_use(ws):
+    p = building(ws, "live")
+    with pytest.raises(FoundryError, match="@t/live"):
+        cast.pick(ws, "nova", "c2", provider=FakeImages())
+    with pytest.raises(FoundryError, match="@t/live"):
+        cast.approve(ws, "nova")
+    assert p.lock["fix_cycles"] == 2
+
+
+def test_a_red_remeasure_keeps_the_existing_pack(ws, monkeypatch):
+    locked(ws, "keep")
+    real = cast.measure_sheet
+
+    def drifted(*a, **k):
+        m = real(*a, **k)
+        m["row"] = {**m["row"], "lum": m["row"]["lum"] + 40}
+        return m
+    monkeypatch.setattr(cast, "measure_sheet", drifted)
+    with pytest.raises(Blocked):
+        cast.remeasure(ws, "keep")
+    assert (ws.dir("personas") / "keep/pack.json").exists()
+
+
+def test_approve_refuses_a_failed_measurement(ws):
+    locked(ws, "failed")
+    d = ws.dir("personas") / "failed"
+    m = read_json(d / "measure.json")
+    m["failed"] = ["forged"]
+    write_json(d / "measure.json", m)
+    st = cast.state(ws, "failed")
+    st["state"] = "sheet_measured"
+    write_json(d / "cast.json", st)
+    with pytest.raises(FoundryError, match="measured green"):
+        cast.approve(ws, "failed")
+
+
+def test_a_final_without_its_manifest_is_rebuilt_not_wedged(ws):
+    from foundry import cut as cut_mod
+    p = building(ws, "wedge")
+    passed(p, "frames", "clip")
+    p.rel("cut").mkdir()
+    p.rel("cut", "final.mp4").write_bytes(b"half an encode")
+    with pytest.raises(RuntimeError, match="shot01.mp4"):  # it tries to build (no clip here), it does not refuse
+        cut_mod.build(ws, p)
+    assert p.status["cycles"]["cut"] == 0
+
+
+def test_the_agent_is_tied_to_its_own_piece(ws, monkeypatch):
+    mine = building(ws, "mine")
+    other = building(ws, "other")
+    monkeypatch.setenv("FOUNDRY_AGENT", mine.ref)
+    monkeypatch.chdir(ws.root)
+    from foundry import cli
+    import contextlib
+    import io
+    import json
+
+    def agent(*args):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+            code = cli.main([*args, "--json"])
+        return code, json.loads(buf.getvalue().strip() or "{}")
+    code, res = agent("reserve", other.ref, "--unit", "video_credits", "--amount", "32.5")
+    assert code == 2 and "may not touch" in res["error"]
+    assert agent("status", mine.ref)[0] == 0
+
+
+def test_prompt_is_per_shot(ws):
+    p = building(ws, "pershot")
+    code, res = run_cli(ws.root, "prompt", p.ref, "--kind", "motion", "--shot", "shot09")
+    assert code == 2 and "unknown shot" in res["error"]
+    code, res = run_cli(ws.root, "prompt", p.ref, "--kind", "motion", "--shot", "shot01")
+    assert code == 0 and res["params"]["duration"] == 5
+
+
+def test_unchanged_inputs_are_not_rehashed(ws, monkeypatch):
+    p = building(ws, "stats")
+    fresh = Piece.open(ws, p.ref)
+    calls = []
+    real = Piece._cached_hash
+    monkeypatch.setattr(Piece, "_cached_hash", lambda self, path: calls.append(str(path)) or real(self, path))
+    assert fresh.lock["fix_cycles"] == 2
+    assert calls == []  # nothing on disk changed, so no input file (the product clip included) was hashed again
+    (ws.root / "clip.mp4").write_bytes(b"changed")
+    with pytest.raises(Blocked, match="asset/0"):
+        Piece.open(ws, p.ref).lock
+
+
+def test_sheet_approval_refuses_a_recast_creator(ws):
+    from foundry import sheet, spec as spec_mod
+    locked(ws)
+    video(ws.root / "clip.mp4", seconds=21)
+    p = spec_mod.new(ws, "@t", "recast")
+    spec_mod.set_values(ws, p, ["hook.line=ok", "assets.0.path=clip.mp4"])
+    sheet.render(ws, p, n=2, provider=FakeImages())
+    master = ws.dir("personas") / "nova/master.png"
+    Image.open(ws.dir("personas") / "nova/candidates/c2.png").save(master)
+    with pytest.raises(FoundryError, match="changed after these candidates"):
+        sheet.approve(ws, p, "c1")

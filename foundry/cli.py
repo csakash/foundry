@@ -19,6 +19,17 @@ from .piece import Piece
 from .util import AGENT_ENV, Blocked, FoundryError, check_face_box, human_only, read_json
 
 
+def _finite(s: str) -> float:
+    import math
+    try:
+        v = float(s)
+    except ValueError:
+        raise argparse.ArgumentTypeError("expected a number")
+    if not math.isfinite(v):
+        raise argparse.ArgumentTypeError("expected a finite number")
+    return v
+
+
 def _floats(s: str) -> list[float]:
     try:
         v = [float(x) for x in s.split(",")]
@@ -104,11 +115,12 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("piece")
     p.add_argument("--kind", required=True, choices=["frame", "motion"])
     p.add_argument("--guidance-from", choices=["frames", "clip"])
+    p.add_argument("--shot", default=None, help="shot id for --kind motion (default: the first shot)")
 
     rs = sub.add_parser("reserve", help="record spend before a provider call")
     rs.add_argument("piece")
     rs.add_argument("--unit", required=True, choices=["video_credits", "image_call"])
-    rs.add_argument("--amount", type=float, required=True)
+    rs.add_argument("--amount", type=_finite, required=True)
     rs.add_argument("--note", default="")
     se = sub.add_parser("settle", help="close a reservation")
     se.add_argument("piece")
@@ -116,7 +128,7 @@ def parser() -> argparse.ArgumentParser:
     sg = se.add_mutually_exclusive_group(required=True)
     sg.add_argument("--ok", dest="ok", action="store_true")
     sg.add_argument("--failed", dest="ok", action="store_false")
-    se.add_argument("--actual", type=float)
+    se.add_argument("--actual", type=_finite)
     se.add_argument("--ref")
 
     sub.add_parser("regen-frame", help="regenerate the start frame with QC guidance").add_argument("piece")
@@ -182,6 +194,9 @@ def dispatch(a: argparse.Namespace) -> tuple[Any, int]:
         return ops.reap(ws, dry_run=a.dry_run), 0
 
     piece = Piece.open(ws, a.piece)
+    agent_ref = os.environ.get(AGENT_ENV, "")
+    if agent_ref not in ("", "1") and piece.ref != agent_ref:
+        raise FoundryError(f"this build agent works on {agent_ref}; it may not touch {piece.ref}")
     if a.cmd == "fetch":  # the download runs unlocked; only the ingest holds the piece
         mp4 = loop.download_clip(ws, piece, a.url, job=a.job, shot=a.shot)
         try:
@@ -199,9 +214,14 @@ def dispatch(a: argparse.Namespace) -> tuple[Any, int]:
         if a.kind == "frame":
             return {"prompt": spec_mod.first_frame_prompt(ws, spec, guidance)}, 0
         video = ws.config["providers"]["video"]
-        text = spec_mod.motion_prompt(ws, spec, 0, guidance)
+        ids = [sh["id"] for sh in spec["shots"]]
+        shot_id = a.shot or ids[0]
+        if shot_id not in ids:
+            raise FoundryError(f"unknown shot {shot_id}; this spec has {', '.join(ids)}")
+        idx = ids.index(shot_id)
+        text = spec_mod.motion_prompt(ws, spec, idx, guidance)
         return {"prompt": text, "start_image": str(piece.rel(loop.APPROVED)),
-                "params": {"model": video["model"], "prompt": text, "duration": spec["shots"][0]["duration_s"],
+                "params": {"model": video["model"], "prompt": text, "duration": spec["shots"][idx]["duration_s"],
                            "aspect_ratio": video["aspect"], "get_cost": True,
                            "medias": [{"role": "<start image role from models_explore>", "value": "<media_id>"}]}}, 0
     if a.cmd == "build":  # not under the piece lock: the session it spawns runs foundry commands on this piece

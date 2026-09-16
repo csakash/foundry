@@ -20,7 +20,7 @@ def run(cmd: list[str]) -> None:
 
 def frame_at(video: Path, t: float, out: Path) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
-    run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.3f}", "-i", str(video), "-frames:v", "1", str(out)])
+    run(["ffmpeg", "-y", "-v", "error", *SAFE_INPUT, "-ss", f"{t:.3f}", "-i", str(video), "-frames:v", "1", str(out)])
     return out
 
 
@@ -100,7 +100,7 @@ def loudnorm(src: Path, dst: Path, target: float, audio: Path | None = None) -> 
     base = src
     if audio:
         base = dst.with_name(dst.stem + "-swapped.mp4")
-        run(["ffmpeg", "-y", "-v", "error", "-i", str(src), "-i", str(audio), "-map", "0:v", "-map", "1:a",
+        run(["ffmpeg", "-y", "-v", "error", *SAFE_INPUT, "-i", str(src), *SAFE_INPUT, "-i", str(audio), "-map", "0:v", "-map", "1:a",
              "-shortest", "-c:v", "copy", "-c:a", "aac", "-ar", "48000", str(base)])
     spec = f"loudnorm=I={target}:TP=-1.5:LRA=11"
     err = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(base), "-map", "0:a:0",

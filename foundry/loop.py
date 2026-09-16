@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import uuid
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -216,9 +217,10 @@ def regen_frame(ws: Workspace, piece: Piece, provider=None) -> dict[str, Any]:
     r = begin_regeneration(piece, "frames")
     spec = piece.spec
     pdir = cast.pdir(ws, spec["creator"])
-    prompt = safety_lint.lint(first_frame_prompt(ws, spec, guidance=r["guidance"]))["rewritten"]
+    raw_prompt = first_frame_prompt(ws, spec, guidance=r["guidance"])
+    prompt = safety_lint.lint(raw_prompt)["rewritten"]  # what was sent, kept in history
     provider = provider or get_image_provider(ws.image, str(ws.root / ".foundry"))
-    data = paid_image_edit(piece, provider, prompt, [pdir / "master.png", pdir / "sheet.png"],
+    data = paid_image_edit(piece, provider, raw_prompt, [pdir / "master.png", pdir / "sheet.png"],
                            media.FRAME_IMAGE_SIZE, "frames regeneration")
     if data is None:
         raise piece.block("frames.safety_refused", "the image provider refused the regenerated first frame on "
@@ -349,7 +351,8 @@ def download_clip(ws: Workspace, piece: Piece, url: str, job: str, shot: str = "
     incoming = piece.rel("incoming")
     incoming.mkdir(exist_ok=True)
     safe_job = "".join(ch for ch in job if ch.isalnum() or ch in "-_")[:64] or "job"
-    dst = incoming / f"{shot}-{safe_job}.mp4"
+    tag = uuid.uuid4().hex[:8]  # two fetches of the same job must not write the same file
+    dst = incoming / f"{shot}-{safe_job}-{tag}.mp4"
     part = dst.with_suffix(".part")
     try:
         with opener.open(urllib.request.Request(_check_url(url, hosts)), timeout=300) as r, open(part, "wb") as f:

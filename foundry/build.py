@@ -44,7 +44,7 @@ def prompt(ws: Workspace, piece: Piece, cycles: int) -> str:
         f"3. `foundry qc {ref} --stage frames`. If red and not blocked: `foundry regen-frame {ref}`, then repeat 1-3.",
         "",
         "STAGE CLIP (repeat for each shot: " + shots + ")",
-        f"4. `foundry prompt {ref} --kind motion` prints the motion prompt and the generate_video params.",
+        f"4. `foundry prompt {ref} --kind motion --shot <shot id>` prints that shot's motion prompt and generate_video params.",
         "5. Use the video MCP: models_explore once for the start-image media role and durations; media_upload for approved.png;",
         f"   `foundry upload {ref} --url <upload_url>`; media_confirm; generate_video with get_cost true (model {video['model']},",
         f"   aspect {video['aspect']}, no audio). A preset recommendation instead of a cost: re-send with declined_preset_id.",
@@ -52,7 +52,7 @@ def prompt(ws: Workspace, piece: Piece, cycles: int) -> str:
         f"   jobs_wait until terminal. `foundry settle {ref} <entry> --ok --ref <job_id>` (or --failed if the job failed).",
         f"7. `foundry fetch {ref} --url <result url> --job <job_id> --shot <shot id>`. Look at clips/<shot id>/frames/.",
         f"   Record the hands verdict for stage clip. `foundry qc {ref} --stage clip`. If red and not blocked: repeat 4-7 with",
-        "   `foundry prompt --kind motion --guidance-from clip`.",
+        "   `foundry prompt --kind motion --shot <shot id> --guidance-from clip`.",
         "   Never resubmit a generation whose outcome is unknown after a timeout; reuse the job id.",
         "",
         "STAGE CUT",
@@ -72,8 +72,8 @@ def argv(ws: Workspace, piece: Piece, mode: str, cycles: int) -> list[str]:
                            "video MCP server's name to call its tools")
     if not SERVER_RE.match(server):
         raise FoundryError(f"providers.video.mcp_server {server!r} must match {SERVER_RE.pattern}")
-    work = ws.config["dirs"]["work"]
-    allowed = ["Bash(foundry:*)", f"Read(./{work}/**)"] + [f"mcp__{server}__{t}" for t in VIDEO_TOOLS]
+    piece_dir = piece.path.relative_to(ws.root)  # the agent reads only its own piece
+    allowed = ["Bash(foundry:*)", f"Read(./{piece_dir}/**)"] + [f"mcp__{server}__{t}" for t in VIDEO_TOOLS]
     # dontAsk + the allowlist already confine reads to work/. Never deny a home-wide pattern: the
     # workspace itself usually lives under the home directory and deny rules beat allow rules.
     denied = (["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Read(./.env)", "Read(~/.ssh/**)",
@@ -100,7 +100,7 @@ def build(ws: Workspace, piece: Piece, mode: str, cycles: int | None = None, dry
         if piece.state != "approved":
             raise FoundryError("the retry budget is fixed once the build has started")
         if not dry_run:
-            piece.set_fix_cycles(cycles)
+            piece.set_fix_cycles(cycles)  # re-checks the state under the piece lock
     budget = cycles if cycles is not None else lock["fix_cycles"]
     text = prompt(ws, piece, budget)
     if mode == "interactive":
@@ -115,7 +115,7 @@ def build(ws: Workspace, piece: Piece, mode: str, cycles: int | None = None, dry
         raise FoundryError("claude CLI not on PATH")
     pidfile = piece.rel(".build.pid")
     fd = _claim_pidfile(pidfile, piece.ref)
-    env = {**os.environ, AGENT_ENV: "1"}
+    env = {**os.environ, AGENT_ENV: piece.ref}  # the session may only act on this piece
     try:
         proc = subprocess.Popen(args, cwd=ws.root, env=env, start_new_session=True)
         os.write(fd, str(proc.pid).encode())

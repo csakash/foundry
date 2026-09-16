@@ -160,8 +160,7 @@ def _gate(ws: Workspace, name: str, st: dict[str, Any], face: Sequence[float]) -
                                     "gate": gate if fails else None, "images": images, "at": now()})
     if gate == "sheet_drift" and fails:  # remembered for these images, whatever face box is used later
         st.setdefault("drift_seen", []).append({**images, "face_box": list(face), "at": now()})
-    if fails:
-        (d / "pack.json").unlink(missing_ok=True)
+    if fails:  # an existing pack stays: its approved numbers are still what pieces were built against
         st.update(state="blocked", blocked_gate=gate)
         _save(ws, name, st)
         if gate == "sheet_unmeasurable":
@@ -188,12 +187,7 @@ def remeasure(ws: Workspace, name: str, face: Sequence[float] | None = None) -> 
         raise FoundryError(f"personas/{name} has no master.png and sheet.png; run --pick first")
     face = check_face_box(face or st.get("face_box") or DEFAULT_FACE)
     st["face_box"] = face
-    if st["state"] == "locked":
-        active = pieces_using(ws, name)
-        if active:
-            raise FoundryError(f"personas/{name} is used by pieces that are approved or building "
-                               f"({', '.join(active)}); ship or drop them before re-measuring this creator")
-        # pack.json stays until a new --approve replaces it, so specs keep working in between
+    _refuse_if_in_use(ws, name, "--remeasure")  # pack.json stays until a new --approve replaces it
     return _gate(ws, name, st, face)
 
 
@@ -208,9 +202,19 @@ def pieces_using(ws: Workspace, name: str) -> list[str]:
     return out
 
 
+def _refuse_if_in_use(ws: Workspace, name: str, step: str) -> None:
+    """A creator whose pack pieces are approved against must not change under them."""
+    if (pdir(ws, name) / "pack.json").exists():
+        active = pieces_using(ws, name)
+        if active:
+            raise FoundryError(f"personas/{name} is used by pieces that are approved or building ({', '.join(active)}); "
+                               f"ship or drop them before `foundry cast {name} {step}`")
+
+
 def pick(ws: Workspace, name: str, candidate: str, face: Sequence[float] | None = None, provider=None) -> dict[str, Any]:
     human_only("cast --pick")
     check_name(candidate, CANDIDATE_RE, "candidate")
+    _refuse_if_in_use(ws, name, "--pick")
     st = state(ws, name)
     if st["state"] not in ("candidates", "blocked", "sheet_measured", "picking"):
         raise FoundryError(f"personas/{name} is '{st['state']}'; run `foundry cast {name} --brief ...` first")
@@ -242,6 +246,7 @@ def pick(ws: Workspace, name: str, candidate: str, face: Sequence[float] | None 
 def approve(ws: Workspace, name: str, story: str | None = None, wardrobe: str | None = None,
             visual_check: str | None = None) -> dict[str, Any]:
     human_only("cast --approve")
+    _refuse_if_in_use(ws, name, "--approve")
     st = state(ws, name)
     d = pdir(ws, name)
     m = read_json(d / "measure.json")
@@ -264,7 +269,7 @@ def approve(ws: Workspace, name: str, story: str | None = None, wardrobe: str | 
     elif visual_check:
         raise FoundryError("--visual-check only applies to a sheet that could not be measured; a measured drift "
                            "cannot be approved by eye")
-    elif st["state"] != "sheet_measured":
+    elif st["state"] != "sheet_measured" or m.get("failed"):
         raise FoundryError(f"personas/{name} is '{st['state']}'; the sheet must be measured green before approval")
     st["touches"] = st.get("touches", 0) + 1
     pack = {

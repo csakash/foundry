@@ -508,7 +508,7 @@ def test_dry_run_never_blocks(ws: Path):
     code, res = sh(root, "build", p.ref, "--mode", "bypass", "--dry-run")
     assert code == 0 and read_json(root / "work/@test/dry/status.json")["state"] == "approved"
     assert not any(t in res["argv"] for t in ("Read(~/**)", "Read"))
-    assert "Read(./work/**)" in res["argv"]
+    assert "Read(./work/@test/dry/**)" in res["argv"]  # the agent reads only its own piece
 
 
 def test_resolve_catches_missing_music_and_real_cut_length(ws: Path):

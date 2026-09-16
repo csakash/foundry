@@ -43,7 +43,7 @@ def write_json(path: str | Path, data: Any) -> Path:
     p.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=f".{p.name}.")
     with os.fdopen(fd, "w") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+        json.dump(data, f, indent=2, ensure_ascii=False, allow_nan=False)
         f.write("\n")
     os.replace(tmp, p)
     return p

@@ -161,3 +161,14 @@ def test_calibration_imani():
     assert frame0.diff(IM / "first-frame/approved.png", IM / "video/frames/f_0001.png") == pytest.approx(20.3, abs=1.0)
     frames = [IM / f"video/frames/f_{i:04d}.png" for i in range(1, 122, 10)]
     assert drift.check(frames, max_lum=12)["pass"]
+
+
+def test_prompt_templates_contain_no_safety_phrases():
+    """The lint rewrites phrases wherever they appear; inside a NEGATIVE list that inverts the meaning
+    (\"see-through clothing\" became \"opaque clothing\" in the first-frame negatives, 2026-09-17)."""
+    from pathlib import Path
+    repo = Path(__file__).resolve().parents[1]
+    files = [repo / "engine/prompts/frame/first-frame.txt", repo / "engine/prompts/motion/seedance-beats.txt",
+             *sorted((repo / "foundry/templates").glob("*.txt")), *sorted((repo / "catalog/scenes").glob("*.json"))]
+    for f in files:
+        assert safety_lint.lint(f.read_text())["pass"], f"{f.name} contains a safety-lint phrase"

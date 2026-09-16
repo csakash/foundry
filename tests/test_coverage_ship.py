@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import shutil
 import socket
 import subprocess
@@ -135,7 +136,7 @@ def test_download_clip_sanitises_the_job_and_caps_the_size(ws, monkeypatch):
     opener = _Opener(b"x" * 64)
     monkeypatch.setattr(loop, "_opener", lambda _ws: (opener, []))
     dst = loop.download_clip(ws, p, "https://cdn.example.com/a.mp4", job="job/../1 x")
-    assert dst.name == "shot01-job1x.mp4" and dst.read_bytes() == b"x" * 64
+    assert re.fullmatch(r"shot01-job1x-[0-9a-f]{8}\.mp4", dst.name) and dst.read_bytes() == b"x" * 64
     monkeypatch.setattr(loop, "MAX_DOWNLOAD", 10)
     with pytest.raises(FoundryError, match="exceeds"):
         loop.download_clip(ws, p, "https://cdn.example.com/a.mp4", job="big")
@@ -305,6 +306,7 @@ def test_cut_rebuild_needs_a_checked_red_cut(ws):
     passed(p, "frames", "clip")
     p.rel("cut").mkdir()
     p.rel("cut", "final.mp4").write_bytes(b"x")
+    p.rel("cut", "cut.json").write_text("{}")  # a finished cut: final.mp4 plus its manifest
     with pytest.raises(FoundryError, match="has not been checked"):
         cut_mod.build(ws, p)
     passed(p, "cut")
@@ -375,7 +377,7 @@ def test_headless_build_runs_the_agent_and_reports_state(ws, monkeypatch):
     monkeypatch.setattr(build.subprocess, "Popen", Proc)
     out = build.build(w, p, "bypass")
     assert out["exit_code"] == 0 and out["state"] == "green" and out["blocked_gate"] is None
-    assert seen["env"]["FOUNDRY_AGENT"] == "1" and seen["session"] and seen["pid_during"] and seen["cwd"] == w.root
+    assert seen["env"]["FOUNDRY_AGENT"] == p.ref and seen["session"] and seen["pid_during"] and seen["cwd"] == w.root
     assert seen["args"][:2] == ["claude", "-p"] and not p.rel(".build.pid").exists()
 
     p.set_state("approved")

@@ -262,7 +262,7 @@ def test_build_modes(ws):
     a = out["argv"]
     assert a[a.index("--permission-mode") + 1] == "dontAsk"
     allowed = a[a.index("--allowedTools") + 1:a.index("--disallowedTools")]
-    assert allowed[:2] == ["Bash(foundry:*)", "Read(./work/**)"]
+    assert allowed[:2] == ["Bash(foundry:*)", "Read(./work/@t/modes/**)"]
     assert set(allowed[2:]) == {f"mcp__higgsfield__{t}" for t in build.VIDEO_TOOLS} and "mcp__higgsfield" not in allowed
     denied = set(a[a.index("--disallowedTools") + 1:])
     assert {"Edit", "Write", "Read(./.env)", "Bash(foundry ship:*)", "Bash(foundry approve:*)"} <= denied

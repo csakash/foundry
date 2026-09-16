@@ -184,6 +184,27 @@ class Piece:
         hashes["persona/pack"] = hashlib.sha256(json.dumps(material, sort_keys=True).encode()).hexdigest()
         return hashes
 
+    def _input_paths(self) -> dict[str, Path]:
+        from .util import inside
+        spec = self.spec
+        pdir = self.ws.dir("personas") / spec["creator"]
+        paths = {f"persona/{n}": pdir / n for n in ("master.png", "sheet.png", "pack.json")}
+        for i, a in enumerate(spec["assets"]):
+            paths[f"asset/{i}"] = inside(self.ws.root, a["path"], "product clip")
+        if spec["audio"].get("path") and spec["audio"].get("kind") == "trending":
+            paths["audio"] = inside(self.ws.root, spec["audio"]["path"], "audio track")
+        return paths
+
+    def _input_stats(self) -> dict[str, list[int] | None]:
+        out: dict[str, list[int] | None] = {}
+        for k, v in self._input_paths().items():
+            try:
+                st = v.stat()
+                out[k] = [st.st_size, st.st_mtime_ns]
+            except FileNotFoundError:
+                out[k] = None
+        return out
+
     def _cached_hash(self, path: Path) -> str:
         """sha256 of a file, re-read only when its size or mtime changed (product clips can be hundreds of MB)."""
         st = path.stat()
@@ -196,7 +217,8 @@ class Piece:
     def write_lock(self, fix_cycles: int) -> dict[str, Any]:
         spec = self.spec
         charter = read_json(self.ws.dir("accounts") / self.status["account"] / "charter.json")
-        lock = {"spec_sha256": self.spec_hash(), "inputs": self.locked_inputs(), "charter": charter,
+        lock = {"spec_sha256": self.spec_hash(), "inputs": self.locked_inputs(), "input_stats": self._input_stats(),
+                "charter": charter,
                 "qc_targets": spec["qc_targets"],
                 "fix_cycles": int(fix_cycles), "max_duration_s": self.ws.defaults["max_duration_s"],
                 "min_video_reservation": min_video_reservation(spec), "locked_at": now()}
@@ -214,6 +236,8 @@ class Piece:
                              "spec.json no longer matches the approved hash; QC limits cannot be trusted")
         if "inputs" not in lock:  # approved before inputs were locked
             return lock
+        if lock.get("input_stats") and self._input_stats() == lock["input_stats"]:
+            return lock  # nothing on disk changed size or mtime since approval: no need to re-hash a large clip
         try:
             current = self.locked_inputs()
         except (FileNotFoundError, FoundryError) as e:
@@ -224,9 +248,12 @@ class Piece:
         return lock
 
     def set_fix_cycles(self, n: int) -> None:
-        lock = read_json(self.path / LOCK)
-        lock["fix_cycles"] = int(n)
-        write_json(self.path / LOCK, lock)
+        with self.exclusive():
+            if self.state != "approved":
+                raise FoundryError("the retry budget is fixed once the build has started")
+            lock = read_json(self.path / LOCK)
+            lock["fix_cycles"] = int(n)
+            write_json(self.path / LOCK, lock)
 
     def require_pass(self, stage: str) -> dict[str, Any]:
         r = read_json(self.rel("qc", f"{stage}.json"))
@@ -250,8 +277,8 @@ class Piece:
         The ceiling covers spend since approval: sheet renders before approval are the price of deciding.
         """
         with self.exclusive():
-            if amount <= 0:
-                raise FoundryError("reserve amount must be positive")
+            if not math.isfinite(amount) or amount <= 0:
+                raise FoundryError("reserve amount must be a positive finite number")
             inv = self.invoice
             floor = (read_json(self.path / LOCK) or {}).get("min_video_reservation")
             if unit == "video_credits" and floor and amount < floor:
@@ -276,6 +303,8 @@ class Piece:
                 raise FoundryError(f"no invoice entry {eid}")
             if e["state"] != "reserved":
                 raise FoundryError(f"invoice entry {eid} is already {e['state']}")
+            if actual is not None and not math.isfinite(actual):
+                raise FoundryError("actual must be a finite number")
             if actual is not None and actual < e["amount"]:
                 raise FoundryError(f"actual {actual} is lower than the reserved {e['amount']}; charges are never lowered")
             e["state"] = "settled" if ok else "failed"
@@ -285,6 +314,12 @@ class Piece:
                 e["ref"] = ref
             e["settled_at"] = now()
             write_json(self.path / "invoice.json", inv)
+            unit = e["unit"]
+            if inv.get("frozen") and unit in inv["ceilings"]:
+                since = self.spent(unit) - float(inv.get("baseline", {}).get(unit, 0))
+                if since > inv["ceilings"][unit] + 1e-9:  # the charge is real: record it, then stop spending
+                    raise self.block(f"budget.{unit}", f"settled {e['amount']} {unit} on {eid}; {since:g} spent since "
+                                                       f"approval is over the ceiling {inv['ceilings'][unit]:g}")
             return e
 
     def consume(self, unit: str, ref: str, check_only: bool = False) -> dict[str, Any]:

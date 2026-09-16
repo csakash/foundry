@@ -22,8 +22,13 @@ from .imaging import capture_treatment, find_font, font, save_png
 from .loop import paid_image_edit
 from .piece import APPROVED, Piece
 from .spec import first_frame_prompt, layout_prompt
-from .util import CANDIDATE_RE, FoundryError, check_name, human_only, inside, now, write_json
+from .util import CANDIDATE_RE, FoundryError, check_name, human_only, inside, now, sha256_file, write_json
 from .workspace import Workspace
+
+
+def _creator_hashes(ws: Workspace, creator: str) -> dict[str, str]:
+    d = cast.pdir(ws, creator)
+    return {n: sha256_file(d / n) for n in ("master.png", "sheet.png") if (d / n).exists()}
 
 
 def cover(src: Path, dst: Path, size=media.OUTPUT_SIZE) -> Path:
@@ -83,7 +88,8 @@ def render(ws: Workspace, piece: Piece, n: int | None = None, provider=None) -> 
 
     compose(spec, piece, sd, names, cap_meta)
     write_html(spec, piece, sd, names, cap_meta)
-    piece.set_state("sheet_pending", sheet_rendered_at=now(), sheet_spec_sha256=piece.spec_hash())
+    piece.set_state("sheet_pending", sheet_rendered_at=now(), sheet_spec_sha256=piece.spec_hash(),
+                    sheet_creator_sha256=_creator_hashes(ws, spec["creator"]))
     return {"piece": piece.ref, "sheet": str(sd / "sheet.png"), "html": str(sd / "index.html"),
             "candidates": names, "refused": refused, "layout_refused": lay is None,
             "font_used": cap_meta["font_used"], "font_substituted": cap_meta["font_substituted"]}
@@ -188,6 +194,9 @@ def approve(ws: Workspace, piece: Piece, candidate: str) -> dict[str, Any]:
     src = piece.rel("sheet", "candidates", f"{candidate}.png")
     if not src.exists():
         raise FoundryError(f"no candidate {candidate} on the sheet")
+    if piece.status.get("sheet_creator_sha256") != _creator_hashes(ws, piece.spec["creator"]):
+        raise FoundryError("the creator's master or sheet changed after these candidates were rendered; render the "
+                           "sheet again")
     if piece.status.get("sheet_spec_sha256") != piece.spec_hash():
         raise FoundryError("the spec changed after the sheet was rendered; render the sheet again so the approval "
                            "covers what will be built")
