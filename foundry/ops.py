@@ -9,7 +9,7 @@ from typing import Any
 
 from engine.providers import get_image_provider
 
-from . import __version__
+from . import __version__, services
 from .piece import Piece
 from .util import read_json
 from .workspace import Workspace, version_ok
@@ -44,18 +44,21 @@ def doctor(ws: Workspace | None, offline: bool = False) -> dict[str, Any]:
         img = ws.image
         if img["kind"] == "openai-images":
             has_key = bool(os.environ.get("OPENAI_API_KEY"))
-            row("OPENAI_API_KEY", "ok" if has_key else "fail", "set" if has_key else "add it to the workspace .env")
+            row("OPENAI_API_KEY", "ok" if has_key else "fail", "set" if has_key else
+                f"Create a key at {services.OPENAI_KEYS_URL}, then add this line to {ws.root / '.env'}:\n"
+                f"  OPENAI_API_KEY=sk-...")
             if has_key and not offline:
                 ok, detail = get_image_provider(img, str(ws.root / ".foundry")).check_model()
                 row(f"image model {img['model']}", "ok" if ok else "fail", detail)
         else:
             row("image provider", "warn", f"kind={img['kind']} (offline fake, spends nothing)")
-        video = ws.config["providers"]["video"]
-        row("video MCP server", "ok" if video.get("mcp_server") else "warn",
-            video.get("mcp_server") or "set providers.video.mcp_server; MCP tools are only visible inside a Claude "
-                                       "session, so /foundry-build checks reachability with the balance tool")
-    worst = "fail" if any(r["status"] == "fail" for r in rows) else ("warn" if any(r["status"] == "warn" for r in rows) else "ok")
-    return {"status": worst, "checks": rows}
+    listed = None if offline else services.list_mcp()
+    for server in services.MCP_SERVERS:
+        status, lines = services.mcp_status(server, listed)
+        row(f"{server['name']} MCP", status, "\n".join(lines))
+    order = ["fail", "todo", "warn", "ok"]
+    worst = next(s for s in order if s == "ok" or any(r["status"] == s for r in rows))
+    return {"status": {"todo": "action needed"}.get(worst, worst), "checks": rows}
 
 
 def ls(ws: Workspace) -> list[dict[str, Any]]:

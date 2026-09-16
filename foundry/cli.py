@@ -37,7 +37,7 @@ def parser() -> argparse.ArgumentParser:
 
     sub.add_parser("init", help="write foundry.json and the workspace dirs here")
     d = sub.add_parser("doctor", help="check tools, keys, models, skills")
-    d.add_argument("--offline", action="store_true", help="skip network checks")
+    d.add_argument("--offline", action="store_true", help="skip network checks and the MCP connection check")
 
     c = sub.add_parser("cast", help="cast a creator: --brief, then --pick cN, then --approve")
     c.add_argument("name")
@@ -152,7 +152,7 @@ def dispatch(a: argparse.Namespace) -> tuple[Any, int]:
         except FoundryError:
             ws = None
         res = ops.doctor(ws, offline=a.offline)
-        return res, 1 if res["status"] == "fail" else 0
+        return res, 0 if res["status"] in ("ok", "warn") else 1
 
     ws = workspace.load(start)
     if a.cmd == "cast":
@@ -253,7 +253,10 @@ def _print(res: Any, as_json: bool) -> None:
                 print(f"  {'PASS' if chk['pass'] else 'FAIL'}  {name}  {chk.get('guidance', '')}")
         elif k == "checks" and isinstance(v, list):
             for chk in v:
-                print(f"  {chk['status']:4}  {chk['check']}  {chk['detail']}")
+                first, *rest = str(chk["detail"]).split("\n")
+                print(f"  {chk['status']:4}  {chk['check']}  {first}")
+                for line in rest:
+                    print(f"{'':8}{line}")
         elif k == "prompt" and isinstance(v, str):
             print(v)
         else:

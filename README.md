@@ -15,8 +15,15 @@ and nothing ships red. Contract and acceptance criteria: [`SPEC.md`](SPEC.md).
 ```bash
 ./setup                                   # CLI on PATH + skills into ~/.claude/skills
 cd ~/my-factory && foundry init           # foundry.json; put OPENAI_API_KEY in .env
-foundry doctor
+foundry doctor                            # says exactly what is still missing, with links
 ```
+
+You connect two outside services once:
+
+| Service | Used for | How to connect |
+|---|---|---|
+| OpenAI | characters, sheets, first frames | create a key at https://platform.openai.com/api-keys and add `OPENAI_API_KEY=sk-...` to the workspace `.env` |
+| Higgsfield MCP | the video clips | needs a Higgsfield account with credits (https://higgsfield.ai). Add `https://mcp.higgsfield.ai/mcp` as a custom connector at https://claude.ai/settings/connectors, or run `claude mcp add --transport http higgsfield https://mcp.higgsfield.ai/mcp` |
 
 | Step | Command | Human? |
 |---|---|---|

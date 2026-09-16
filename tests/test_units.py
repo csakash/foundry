@@ -380,13 +380,42 @@ def test_doctor_offline(ws, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     fake = ops.doctor(ws, offline=True)
     assert any(r["check"] == "image provider" and r["status"] == "warn" for r in fake["checks"])
+    higgs = next(r for r in fake["checks"] if r["check"] == "Higgsfield MCP")
+    assert higgs["status"] == "todo" and "https://mcp.higgsfield.ai/mcp" in higgs["detail"]
+    assert fake["status"] == "action needed"
     cfg = read_json(ws.root / "foundry.json")
     cfg["providers"]["image"] = {"kind": "openai-images"}
     write_json(ws.root / "foundry.json", cfg)
     real = ops.doctor(workspace.load(ws.root), offline=True)
     assert real["status"] == "fail"
-    assert next(r for r in real["checks"] if r["check"] == "OPENAI_API_KEY")["status"] == "fail"
+    key = next(r for r in real["checks"] if r["check"] == "OPENAI_API_KEY")
+    assert key["status"] == "fail" and "https://platform.openai.com/api-keys" in key["detail"]
     assert ops.doctor(None, offline=True)["status"] == "fail"
+
+
+def test_doctor_reads_the_mcp_connection(monkeypatch):
+    from foundry import services
+    listing = """Checking MCP server health...
+
+claude.ai Apify: https://mcp.apify.com - ✓ Connected
+claude.ai Higgsfield: https://mcp.higgsfield.ai/mcp - ✓ Connected
+openseo: https://app.openseo.so/mcp (HTTP) - ! Needs authentication
+"""
+
+    class Done:
+        stdout = listing
+    monkeypatch.setattr(services.shutil, "which", lambda _: "/bin/claude")
+    monkeypatch.setattr(services.subprocess, "run", lambda *a, **k: Done())
+    rows = services.list_mcp()
+    assert [r["status"] for r in rows] == ["connected", "connected", "needs_auth"]
+    higgs = services.MCP_SERVERS[0]
+    assert services.mcp_status(higgs, rows) == ("ok", ["connected as 'claude.ai Higgsfield' (https://mcp.higgsfield.ai/mcp)"])
+    auth = [{"name": "higgsfield", "url": "https://mcp.higgsfield.ai/mcp", "status": "needs_auth", "raw": "! Needs authentication"}]
+    status, lines = services.mcp_status(higgs, auth)
+    assert status == "todo" and "/mcp" in lines[0]
+    status, lines = services.mcp_status(higgs, rows[:1])
+    assert status == "todo" and any("claude mcp add --transport http higgsfield" in x for x in lines)
+    assert any(services.CLAUDE_CONNECTORS_URL in x for x in lines)
 
 
 # ---------------------------------------------------------------- formats router
