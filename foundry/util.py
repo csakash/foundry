@@ -1,0 +1,115 @@
+"""Small shared helpers: errors with exit codes, JSON files, .env, time."""
+from __future__ import annotations
+
+import json
+import os
+import re
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+class FoundryError(Exception):
+    """Refusal: a precondition is not met. Exit 2."""
+    code = 2
+
+
+class Blocked(Exception):
+    """A gate failed after its retries, or the budget ran out. Exit 1, never ships."""
+    code = 1
+
+    def __init__(self, gate: str, evidence: str):
+        super().__init__(f"BLOCKED {gate}: {evidence}")
+        self.gate, self.evidence = gate, evidence
+
+
+def now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def read_json(path: str | Path, default: Any = None) -> Any:
+    p = Path(path)
+    if not p.exists():
+        return default
+    return json.loads(p.read_text())
+
+
+def write_json(path: str | Path, data: Any) -> Path:
+    """Atomic write: a crash mid-write never leaves half a status or invoice file."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=f".{p.name}.")
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    os.replace(tmp, p)
+    return p
+
+
+def load_dotenv(path: str | Path) -> list[str]:
+    """Load KEY=VALUE lines into os.environ without overriding what is already set."""
+    p = Path(path)
+    loaded: list[str] = []
+    if not p.exists():
+        return loaded
+    for line in p.read_text().splitlines():
+        m = re.match(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$", line)
+        if not m or line.lstrip().startswith("#"):
+            continue
+        key, val = m.group(1), m.group(2)
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in "'\"":
+            val = val[1:-1]
+        if key not in os.environ:
+            os.environ[key] = val
+            loaded.append(key)
+    return loaded
+
+
+def get_path(data: dict[str, Any], dotted: str) -> Any:
+    cur: Any = data
+    for part in dotted.split("."):
+        if isinstance(cur, list):
+            idx = int(part)
+            if idx >= len(cur):
+                return None
+            cur = cur[idx]
+        elif isinstance(cur, dict):
+            if part not in cur:
+                return None
+            cur = cur[part]
+        else:
+            return None
+    return cur
+
+
+def set_path(data: dict[str, Any], dotted: str, value: Any) -> None:
+    parts = dotted.split(".")
+    cur: Any = data
+    for i, part in enumerate(parts[:-1]):
+        nxt = parts[i + 1]
+        if isinstance(cur, list):
+            idx = int(part)
+            while len(cur) <= idx:
+                cur.append({})
+            cur = cur[idx]
+            continue
+        if part not in cur or cur[part] is None:
+            cur[part] = [] if nxt.isdigit() else {}
+        cur = cur[part]
+    last = parts[-1]
+    if isinstance(cur, list):
+        idx = int(last)
+        while len(cur) <= idx:
+            cur.append(None)
+        cur[idx] = value
+    else:
+        cur[last] = value
+
+
+def parse_value(raw: str) -> Any:
+    """CLI values: JSON when it parses (numbers, lists, objects, true/false/null), else the string."""
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return raw
