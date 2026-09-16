@@ -14,7 +14,7 @@ from typing import Any
 from . import __version__, build as build_mod, cast, cut as cut_mod, loop, ops, sheet, ship as ship_mod, spec as spec_mod
 from . import workspace
 from .piece import Piece
-from .util import Blocked, FoundryError
+from .util import Blocked, FoundryError, human_only, read_json
 
 
 def _floats(s: str) -> list[float]:
@@ -70,7 +70,7 @@ def parser() -> argparse.ArgumentParser:
 
     b = sub.add_parser("build", help="run the build loop")
     b.add_argument("piece")
-    b.add_argument("--mode", default=None, choices=list(build_mod.MODES))
+    b.add_argument("--mode", default=None, choices=build_mod.MODES)
     b.add_argument("--fix-cycles", type=int)
     b.add_argument("--dry-run", action="store_true")
 
@@ -111,11 +111,19 @@ def parser() -> argparse.ArgumentParser:
     se.add_argument("--ref")
 
     sub.add_parser("regen-frame", help="regenerate the start frame with QC guidance").add_argument("piece")
-    ic = sub.add_parser("ingest-clip", help="bring a generated clip into the piece and sample frames")
+    ic = sub.add_parser("ingest-clip", help="bring a local clip into the piece (needs its settled reservation)")
     ic.add_argument("piece")
     ic.add_argument("mp4")
+    ic.add_argument("--job", required=True, help="the job id the reservation was settled with")
     ic.add_argument("--shot", default="shot01")
-    ic.add_argument("--job")
+    up = sub.add_parser("upload", help="PUT frames/approved.png to a presigned https upload URL")
+    up.add_argument("piece")
+    up.add_argument("--url", required=True)
+    fe = sub.add_parser("fetch", help="download a generated clip over https and ingest it")
+    fe.add_argument("piece")
+    fe.add_argument("--url", required=True)
+    fe.add_argument("--job", required=True)
+    fe.add_argument("--shot", default="shot01")
 
     sub.add_parser("cut", help="assemble cut/final.mp4").add_argument("piece")
     sp = sub.add_parser("ship", help="publish handoff + save recipe (does not post)")
@@ -134,6 +142,7 @@ def parser() -> argparse.ArgumentParser:
 def dispatch(a: argparse.Namespace) -> tuple[Any, int]:
     start = Path(a.cwd).resolve() if a.cwd else None
     if a.cmd == "init":
+        human_only("init")
         ws, created = workspace.init(start)
         return {"workspace": str(ws.root), "created": created}, 0
     if a.cmd == "doctor":
@@ -182,7 +191,7 @@ def dispatch(a: argparse.Namespace) -> tuple[Any, int]:
         spec = piece.spec
         guidance = ""
         if a.guidance_from:
-            guidance = ((loop.read_json(piece.rel("qc", f"{a.guidance_from}.json")) or {}).get("guidance")) or ""
+            guidance = ((read_json(piece.rel("qc", f"{a.guidance_from}.json")) or {}).get("guidance")) or ""
         if a.kind == "frame":
             return {"prompt": spec_mod.first_frame_prompt(ws, spec, guidance)}, 0
         video = ws.config["providers"]["video"]
@@ -195,12 +204,15 @@ def dispatch(a: argparse.Namespace) -> tuple[Any, int]:
         return {"entry": piece.reserve(a.unit, a.amount, a.note or a.unit), "spent": piece.spent(a.unit),
                 "ceiling": piece.invoice["ceilings"].get(a.unit)}, 0
     if a.cmd == "settle":
-        piece.settle(a.entry, a.ok, a.actual, a.ref)
-        return {"entry": a.entry, "ok": a.ok}, 0
+        return piece.settle(a.entry, a.ok, a.actual, a.ref), 0
     if a.cmd == "regen-frame":
         return loop.regen_frame(ws, piece), 0
     if a.cmd == "ingest-clip":
-        return loop.ingest_clip(ws, piece, Path(a.mp4).resolve(), a.shot, a.job), 0
+        return loop.ingest_clip(ws, piece, Path(a.mp4), job=a.job, shot=a.shot), 0
+    if a.cmd == "upload":
+        return loop.upload_approved(piece, a.url), 0
+    if a.cmd == "fetch":
+        return loop.fetch_clip(ws, piece, a.url, job=a.job, shot=a.shot), 0
     if a.cmd == "cut":
         return cut_mod.build(ws, piece), 0
     if a.cmd == "ship":
@@ -246,13 +258,13 @@ def main(argv: list[str] | None = None) -> int:
     except Blocked as e:
         out = {"status": "BLOCKED", "gate": e.gate, "evidence": e.evidence}
         print(json.dumps(out, indent=2) if a.json else str(e), file=sys.stdout)
-        return 1
+        return e.code
     except FoundryError as e:
         out = {"status": "REFUSED", "error": str(e)}
         if a.json:  # agents parse stdout; a refusal is a result, not a crash
             print(json.dumps(out, indent=2))
         else:
             print(f"refused: {e}", file=sys.stderr)
-        return 2
+        return e.code
     _print(res, a.json)
     return code

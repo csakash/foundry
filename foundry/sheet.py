@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import base64
 import html
-import json
+import io
+import shlex
 import shutil
 from pathlib import Path
 from typing import Any
@@ -19,13 +20,13 @@ from engine.qc import safety_lint
 from . import cast, media
 from .caption import overlay, render as render_caption
 from .imaging import capture_treatment, find_font, font, save_png
-from .piece import Piece
+from .piece import APPROVED, Piece
 from .spec import first_frame_prompt, layout_prompt
-from .util import FoundryError, now, write_json
+from .util import CANDIDATE_RE, FoundryError, check_name, human_only, inside, now, write_json
 from .workspace import Workspace
 
 
-def cover(src: Path, dst: Path, size=(1080, 1920)) -> Path:
+def cover(src: Path, dst: Path, size=media.OUTPUT_SIZE) -> Path:
     im = Image.open(src).convert("RGB")
     w, h = size
     s = max(w / im.width, h / im.height)
@@ -35,15 +36,16 @@ def cover(src: Path, dst: Path, size=(1080, 1920)) -> Path:
     return dst
 
 
-def _call(piece: Piece, provider, op: str, prompt: str, refs: list[Path], n: int, size: str, note: str) -> list[bytes]:
+def _call(piece: Piece, provider, prompt: str, refs: list[Path], size: str, note: str) -> bytes | None:
+    """One image, one reservation. A safety refusal returns None (the candidate is lost, not the piece)."""
     lint = safety_lint.lint(prompt)
-    eid = piece.reserve("image_call", float(n), note + (f" (safety rewrites: {', '.join(h['phrase'] for h in lint['measures']['hits'])})"
-                                                        if lint["measures"]["hits"] else ""))
+    hits = ", ".join(h["phrase"] for h in lint["measures"]["hits"])
+    eid = piece.reserve("image_call", 1.0, note + (f" (safety rewrites: {hits})" if hits else ""))
     try:
-        out = provider.edit(lint["rewritten"], refs, n=n, size=size)
-    except ImageRefused as e:
+        out = provider.edit(lint["rewritten"], refs, n=1, size=size)[0]
+    except ImageRefused:
         piece.settle(eid, ok=False)
-        raise piece.block("sheet.safety_refused", str(e))
+        return None
     except Exception:
         piece.settle(eid, ok=False)
         raise
@@ -52,6 +54,7 @@ def _call(piece: Piece, provider, op: str, prompt: str, refs: list[Path], n: int
 
 
 def render(ws: Workspace, piece: Piece, n: int | None = None, provider=None) -> dict[str, Any]:
+    human_only("sheet")
     piece.require("specced", "sheet_pending")
     spec = piece.spec
     n = int(n or ws.defaults.get("sheet_candidates", 3))
@@ -67,26 +70,38 @@ def render(ws: Workspace, piece: Piece, n: int | None = None, provider=None) -> 
 
     ff_prompt = first_frame_prompt(ws, spec)
     (sd / "first-frame-prompt.txt").write_text(ff_prompt)
-    lay = _call(piece, provider, "edit", layout_prompt(spec), [master], 1, "1536x1024", "sheet layout sketch")
-    save_png(lay[0], sd / "layout.png")
-    cands = _call(piece, provider, "edit", ff_prompt, [master, char_sheet], n, "1024x1536", f"sheet: {n} first-frame candidates")
-    names = []
-    for i, data in enumerate(cands, 1):
+    names, refused = [], 0
+    for i in range(1, n + 1):
+        data = _call(piece, provider, ff_prompt, [master, char_sheet], "1024x1536", f"sheet candidate c{i}")
+        if data is None:
+            refused += 1
+            continue
         raw = save_png(data, sd / "candidates/raw" / f"c{i}.png")
         capture_treatment(raw, sd / "candidates" / f"c{i}.png", seed=i)
         names.append(f"c{i}")
+    if len(names) < 2:
+        hits = safety_lint.lint(ff_prompt)["measures"]["hits"]
+        raise FoundryError(f"the image provider refused {refused} of {n} candidates on safety grounds, leaving "
+                           f"{len(names)}; reword the shot (wardrobe, action) with foundry set and render again"
+                           + (f". Lint already rewrote: {', '.join(h['phrase'] for h in hits)}" if hits else ""))
+    lay = _call(piece, provider, layout_prompt(spec), [master], "1536x1024", "sheet layout sketch")
+    if lay is None:  # the sketch is context, not the decision: fall back to a plain panel strip
+        Image.new("RGB", (1536, 1024), (238, 236, 230)).save(sd / "layout.png")
+    else:
+        save_png(lay, sd / "layout.png")
 
     asset = spec["assets"][0]
-    media.frame_at(ws.root / asset["path"], float(asset["trim_s"][0]) + 0.5, sd / "product.jpg")
+    media.frame_at(inside(ws.root, asset["path"], "product clip"), float(asset["trim_s"][0]) + 0.5, sd / "product.jpg")
     cap_meta = render_caption(spec["captions"], sd / "caption.png")
-    cover(sd / "candidates/c1.png", sd / "c1-9x16.png")
+    cover(sd / f"candidates/{names[0]}.png", sd / "c1-9x16.png")
     overlay(sd / "c1-9x16.png", sd / "caption.png", sd / "caption-preview.png")
 
     compose(spec, piece, sd, names, cap_meta)
     write_html(spec, piece, sd, names, cap_meta)
     piece.set_state("sheet_pending", sheet_rendered_at=now())
     return {"piece": piece.ref, "sheet": str(sd / "sheet.png"), "html": str(sd / "index.html"),
-            "candidates": names, "font_used": cap_meta["font_used"], "font_substituted": cap_meta["font_substituted"]}
+            "candidates": names, "refused": refused, "layout_refused": lay is None,
+            "font_used": cap_meta["font_used"], "font_substituted": cap_meta["font_substituted"]}
 
 
 def compose(spec: dict[str, Any], piece: Piece, sd: Path, names: list[str], cap: dict[str, Any]) -> Path:
@@ -96,8 +111,9 @@ def compose(spec: dict[str, Any], piece: Piece, sd: Path, names: list[str], cap:
     lay = Image.open(sd / "layout.png").convert("RGB")
     lay_h = min(900, round((W - 2 * pad) * lay.height / lay.width))  # the candidates are the decision, not the sketch
     lay = lay.resize((round(lay_h * lay.width / lay.height), lay_h))
-    tiles = [(sd / "candidates" / f"{c}.png", f"{c}  (foundry approve {piece.ref} --candidate {c})") for c in names]
-    tiles += [(sd / "caption-preview.png", "caption in place (on c1)"), (sd / "product.jpg", f"product clip @ {spec['assets'][0]['enter_at_s']} s")]
+    tiles = [(sd / "candidates" / f"{c}.png", c) for c in names]
+    tiles += [(sd / "caption-preview.png", f"caption in place (on {names[0]})"),
+              (sd / "product.jpg", f"product clip @ {spec['assets'][0]['enter_at_s']} s")]
     tw = (W - pad * (len(tiles) + 1)) // len(tiles)
     th = round(tw * 16 / 9)
     H = pad + 70 + lay.height + pad + th + 60 + 90
@@ -114,7 +130,7 @@ def compose(spec: dict[str, Any], piece: Piece, sd: Path, names: list[str], cap:
         im = im.crop(((im.width - tw) // 2, (im.height - th) // 2, (im.width - tw) // 2 + tw, (im.height - th) // 2 + th))
         x = pad + i * (tw + pad)
         canvas.paste(im, (x, y))
-        d.text((x, y + th + 10), label.split("  (")[0], fill=(233, 228, 216), font=f_lab)
+        d.text((x, y + th + 10), label, fill=(233, 228, 216), font=f_lab)
     b = spec["budget"]
     d.text((pad, H - 80), f"Approving freezes the invoice: ceiling {b['ceiling']['video_credits']:.1f} video credits, "
                           f"{b['ceiling']['image_call']:.0f} image calls. Font: {cap['font_used']}"
@@ -123,16 +139,21 @@ def compose(spec: dict[str, Any], piece: Piece, sd: Path, names: list[str], cap:
     return sd / "sheet.png"
 
 
-def _b64(p: Path) -> str:
-    mime = "image/png" if p.suffix == ".png" else "image/jpeg"
-    return f"data:{mime};base64,{base64.b64encode(p.read_bytes()).decode()}"
+def _b64(p: Path, max_w: int = 720) -> str:
+    """Display-size JPEG for the page; the full-size PNGs stay on disk for approval."""
+    im = Image.open(p).convert("RGB")
+    if im.width > max_w:
+        im = im.resize((max_w, round(max_w * im.height / im.width)))
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=85)
+    return f"data:image/jpeg;base64,{base64.b64encode(buf.getvalue()).decode()}"
 
 
 def write_html(spec: dict[str, Any], piece: Piece, sd: Path, names: list[str], cap: dict[str, Any]) -> Path:
     e = html.escape
     cards = "".join(
         f'<figure><img src="{_b64(sd / "candidates" / f"{c}.png")}" alt="candidate {c}"><figcaption>{c}'
-        f'<button data-cmd="foundry approve {e(piece.ref)} --candidate {c}">Approve {c}</button></figcaption></figure>'
+        f'<button data-cmd="{e(shlex.join(["foundry", "approve", piece.ref, "--candidate", c]))}">Approve {c}</button></figcaption></figure>'
         for c in names)
     structure = "".join(f"<li>{s['t'][0]:.0f}–{s['t'][1]:.0f} s · {e(s['beat'])}</li>" for s in spec["structure"])
     b = spec["budget"]
@@ -153,7 +174,7 @@ code{{background:var(--card);border:1px solid var(--line);padding:2px 6px;border
 <main>
 <h1>{e(piece.ref)}</h1><div class="mute">Approve one candidate. That is the only decision before spend.</div>
 <div class="hook">“{e(spec['hook']['line'])}”</div>
-<img src="{_b64(sd / 'layout.png')}" alt="layout sketch">
+<img src="{_b64(sd / 'layout.png', 1180)}" alt="layout sketch">
 <div class="grid">{cards}
 <figure><img src="{_b64(sd / 'caption-preview.png')}" alt="caption preview"><figcaption>caption in place</figcaption></figure>
 <figure><img src="{_b64(sd / 'product.jpg')}" alt="product clip"><figcaption>product clip</figcaption></figure></div>
@@ -176,17 +197,20 @@ document.querySelectorAll('button[data-cmd]').forEach(b=>b.addEventListener('cli
 
 
 def approve(ws: Workspace, piece: Piece, candidate: str) -> dict[str, Any]:
+    human_only("approve")
+    check_name(candidate, CANDIDATE_RE, "candidate")
     piece.require("sheet_pending")
     src = piece.rel("sheet", "candidates", f"{candidate}.png")
     if not src.exists():
         raise FoundryError(f"no candidate {candidate} on the sheet")
     piece.rel("frames").mkdir(exist_ok=True)
-    shutil.copyfile(src, piece.rel("frames", "approved.png"))
+    shutil.copyfile(src, piece.rel(APPROVED))
     spec = piece.spec
     inv = piece.invoice
     inv.update(frozen=True, frozen_at=now(), planned=spec["budget"]["planned"], ceilings=spec["budget"]["ceiling"],
-               approved_candidate=candidate)
+               baseline={u: piece.spent(u) for u in spec["budget"]["ceiling"]}, approved_candidate=candidate)
     write_json(piece.rel("invoice.json"), inv)
+    lock = piece.write_lock(ws.defaults["fix_cycles"])
     piece.touch(f"sheet approval: {candidate}")
     piece.set_state("approved", approved_candidate=candidate)
-    return {"piece": piece.ref, "approved": candidate, "ceilings": inv["ceilings"]}
+    return {"piece": piece.ref, "approved": candidate, "ceilings": inv["ceilings"], "fix_cycles": lock["fix_cycles"]}

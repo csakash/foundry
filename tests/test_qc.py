@@ -96,6 +96,19 @@ def test_duration_expected_and_bounds(tmp):
     assert duration.probe(v)["width"] == 720
 
 
+def test_loudness_non_silent_branch(tmp):
+    tone = video(tmp / "t.mp4", seconds=4, audio="tone")
+    norm = tmp / "n.mp4"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(tone), "-c:v", "copy", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
+                    "-c:a", "aac", str(norm)], check=True)
+    assert loudness.check(norm, "clip")["pass"], loudness.check(norm, "clip")
+    quiet = tmp / "q.mp4"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(tone), "-c:v", "copy", "-af", "volume=-25dB",
+                    "-c:a", "aac", str(quiet)], check=True)
+    assert not loudness.check(quiet, "clip")["pass"]
+    assert not loudness.check(video(tmp / "s.mp4", seconds=1), "clip")["pass"]
+
+
 def test_loudness_silent_and_tone(tmp):
     silent = video(tmp / "s.mp4", seconds=2)
     tone = video(tmp / "t.mp4", seconds=2, audio="tone")
@@ -137,7 +150,7 @@ def test_text_lint_slop_and_charter():
 IM = IMANI / "work/_ugc/imani-salary-hook"
 
 
-@pytest.mark.skipif(not (IM / "first-frame/approved.png").exists(), reason="Imani calibration files not on this machine")
+@pytest.mark.skipif(not (IM / "first-frame/approved.png").exists(), reason="set FOUNDRY_CALIBRATION_DIR to a gmm-contents checkout")
 def test_calibration_imani():
     master = IMANI / "personas/imani/master.png"
     m = skin.measure(master, (0.36, 0.27, 0.64, 0.52))

@@ -81,13 +81,13 @@ def check(path: str | Path, targets: dict[str, Any], box: Box | None,
     fails = [k for k, d in deltas.items() if abs(d) > float(tol.get(k, 0))]
     guidance = []
     if "r_minus_b" in fails and deltas["r_minus_b"] > 0:
-        guidance.append("her skin has drifted warm; restate the cool, neutral, desaturated skin spec and keep warm light in the background only")
+        guidance.append("the skin has drifted warmer than the creator pack; restate the pack's skin rule and keep warm light off the skin")
     if "r_minus_b" in fails and deltas["r_minus_b"] < 0:
-        guidance.append("her skin reads too blue; use neutral-white key light")
+        guidance.append("the skin reads cooler than the creator pack; use neutral-white key light")
     if "sat_pct" in fails and deltas["sat_pct"] > 0:
         guidance.append("skin is oversaturated; ask for natural, desaturated skin with real texture")
     if "lum" in fails:
-        guidance.append("skin is rendered too " + ("light" if deltas["lum"] > 0 else "dark") + " against her pack; match the master's tone")
+        guidance.append("skin is rendered too " + ("light" if deltas["lum"] > 0 else "dark") + " against the creator pack; match the master's tone")
     return result(not fails, {**m, "deltas": deltas, "failed": fails,
                               "region_source": region_source, "box": list(box)},
                   ("Skin QC: " + "; ".join(guidance) + ".") if guidance else "")

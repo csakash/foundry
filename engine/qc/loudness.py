@@ -13,6 +13,8 @@ from typing import Any
 from . import result
 from .duration import probe
 
+TARGET_LUFS = -14.0
+
 
 def integrated(path: str | Path) -> float | None:
     if not probe(path)["has_audio"]:
@@ -26,7 +28,7 @@ def integrated(path: str | Path) -> float | None:
     return float("-inf") if v == "-inf" else float(v)
 
 
-def check(path: str | Path, kind: str, target: float = -14.0, tol: float = 2.0) -> dict[str, Any]:
+def check(path: str | Path, kind: str, target: float = TARGET_LUFS, tol: float = 2.0) -> dict[str, Any]:
     i = integrated(path)
     if kind == "silent":
         ok = i is None or i <= -69.0

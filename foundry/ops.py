@@ -9,7 +9,7 @@ from typing import Any
 
 from engine.providers import get_image_provider
 
-from . import REPO, __version__
+from . import __version__
 from .piece import Piece
 from .util import read_json
 from .workspace import Workspace, version_ok
@@ -69,10 +69,12 @@ def ls(ws: Workspace) -> list[dict[str, Any]]:
     return out
 
 
-KEEP = {"SPEC.md", "spec.json", "status.json", "invoice.json", "publish.json", "qc"}
+KEEP = {"SPEC.md", "spec.json", "status.json", "invoice.json", "publish.json", "approved.lock.json", "qc"}
 
 
 def reap(ws: Workspace, dry_run: bool = False) -> list[dict[str, Any]]:
+    from .util import human_only
+    human_only("reap")
     reaped = []
     for p in Piece.all(ws):
         pub = read_json(p.rel("publish.json")) or {}

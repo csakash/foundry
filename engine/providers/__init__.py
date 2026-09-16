@@ -8,8 +8,8 @@ def get_image_provider(cfg: dict[str, Any]):
     kind = cfg.get("kind")
     if kind == "openai-images":
         from .openai_images import OpenAIImages
-        return OpenAIImages(model=cfg.get("model", "gpt-image-2.5-sunburst"), quality=cfg.get("quality", "high"),
-                            rpm_images=int(cfg.get("rpm_images", 5)))
+        keys = {"model": "model", "quality": "quality", "rpm_images": "rpm_images"}
+        return OpenAIImages(**{arg: cfg[k] for k, arg in keys.items() if k in cfg})
     if kind == "fake":
         from .fake_images import FakeImages
         return FakeImages(skin=tuple(cfg.get("skin", (62, 52, 50))))

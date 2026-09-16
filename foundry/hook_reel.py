@@ -53,10 +53,6 @@ def structure(spec: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
-def total_duration(spec: dict[str, Any]) -> float:
-    return max(seg["t"][1] for seg in structure(spec))
-
-
 def plan(spec: dict[str, Any], candidates: int) -> dict[str, float]:
     video = sum(math.ceil(sh["duration_s"] / 5) * UNIT_CREDITS["video_5s"] for sh in spec["shots"])
     return {"image_call": float(1 + candidates), "video_credits": float(video)}

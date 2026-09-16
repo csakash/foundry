@@ -113,3 +113,35 @@ def parse_value(raw: str) -> Any:
         return json.loads(raw)
     except (json.JSONDecodeError, ValueError):
         return raw
+
+
+# ---------------------------------------------------------------- input guards
+# Every name that becomes a path component is checked here, once, so a slug or a
+# persona name can never walk out of the workspace.
+ACCOUNT_RE = re.compile(r"^@[A-Za-z0-9._]{1,64}$")
+SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+CANDIDATE_RE = re.compile(r"^c[1-9][0-9]?$")
+SHOT_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
+AGENT_ENV = "FOUNDRY_AGENT"
+
+
+def check_name(value: str, pattern: "re.Pattern[str]", what: str) -> str:
+    if not isinstance(value, str) or not pattern.match(value):
+        raise FoundryError(f"invalid {what} {value!r} (must match {pattern.pattern})")
+    return value
+
+
+def inside(root: Path, rel: str | Path, what: str) -> Path:
+    """Resolve rel under root and refuse anything that escapes it (../, absolute paths, symlinks out)."""
+    base = Path(root).resolve()
+    p = (base / rel).resolve()
+    if p != base and base not in p.parents:
+        raise FoundryError(f"{what} {str(rel)!r} is outside {base}")
+    return p
+
+
+def human_only(step: str) -> None:
+    """Steps that are the human's decision. The build agent runs with FOUNDRY_AGENT=1 and is refused."""
+    if os.environ.get(AGENT_ENV):
+        raise FoundryError(f"`foundry {step}` is a human step; the build agent may not run it")

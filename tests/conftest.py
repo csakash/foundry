@@ -9,7 +9,10 @@ import pytest
 from PIL import Image, ImageDraw
 
 REPO = Path(__file__).resolve().parents[1]
-IMANI = Path("/Users/akashmunshi/gmm-contents")  # optional calibration source, never copied
+import os
+
+# optional calibration source (a gmm-contents checkout), read in place and never copied
+IMANI = Path(os.environ.get("FOUNDRY_CALIBRATION_DIR", "/Users/akashmunshi/gmm-contents"))
 
 
 def portrait(path: Path, skin=(62, 52, 50), bg=(52, 53, 55), size=(512, 768), face=(0.34, 0.26, 0.66, 0.54),
@@ -46,3 +49,8 @@ def video(path: Path, seconds=5.0, size="720x1280", color="0x3e3432", audio: str
 @pytest.fixture
 def tmp(tmp_path: Path) -> Path:
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def _not_the_agent(monkeypatch):
+    monkeypatch.delenv("FOUNDRY_AGENT", raising=False)

@@ -12,6 +12,7 @@ from typing import Any
 from PIL import Image, ImageDraw
 
 from .imaging import find_font, font
+from .media import OUTPUT_SIZE
 from .util import write_json
 
 
@@ -29,7 +30,7 @@ def wrap(draw: ImageDraw.ImageDraw, text: str, fnt, max_w: int) -> list[str]:
     return lines
 
 
-def render(spec_captions: dict[str, Any], out_png: Path, size: tuple[int, int] = (1080, 1920)) -> dict[str, Any]:
+def render(spec_captions: dict[str, Any], out_png: Path, size: tuple[int, int] = OUTPUT_SIZE) -> dict[str, Any]:
     w, h = size
     name, path = find_font(spec_captions.get("font", "TikTok Sans Bold"))
     px = round(w * float(spec_captions.get("size_pct_w", 6.6)) / 100)
@@ -41,13 +42,11 @@ def render(spec_captions: dict[str, Any], out_png: Path, size: tuple[int, int] =
     lines = wrap(d, spec_captions["text"], fnt, max_w)
     line_h = round(px * 1.2)
     top = round(h * float(spec_captions.get("band_start_pct_h", 11)) / 100)
-    x_min, x_max = w, 0
     for i, line in enumerate(lines):
         lw = d.textlength(line, font=fnt)
         x = (w - lw) / 2
         y = top + i * line_h
         d.text((x, y), line, font=fnt, fill=(255, 255, 255, 255), stroke_width=stroke, stroke_fill=(0, 0, 0, 255))
-        x_min, x_max = min(x_min, x - stroke), max(x_max, x + lw + stroke)
     bbox = im.getbbox() or (0, top, w, top)
     out_png.parent.mkdir(parents=True, exist_ok=True)
     im.save(out_png)

@@ -11,11 +11,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from engine.qc import text_lint
+from engine.qc import duration as qc_duration, text_lint
 
 from . import REPO, cast, hook_reel
 from .piece import Piece
-from .util import FoundryError, get_path, now, parse_value, read_json, set_path
+from .util import FoundryError, get_path, human_only, inside, now, parse_value, read_json, set_path
 from .workspace import Workspace
 
 MAX_QUESTIONS = 5
@@ -23,6 +23,7 @@ VIDEO_EXT = {".mp4", ".mov", ".m4v", ".webm"}
 
 
 def new(ws: Workspace, account: str, slug: str, recipe: str | None = None) -> Piece:
+    human_only("new")
     p = Piece.create(ws, account, slug)
     spec = hook_reel.defaults()
     spec.update(account=account, slug=slug, creator=None, resolved_from={}, created_at=now())
@@ -56,6 +57,8 @@ def _last_shipped(ws: Workspace, account: str) -> dict[str, Any] | None:
 
 
 def resolve(ws: Workspace, piece: Piece) -> dict[str, Any]:
+    if piece.state not in ("created", "specced", "sheet_pending"):
+        raise FoundryError(f"{piece.ref} is '{piece.state}'; the spec is frozen after approval")
     spec = piece.spec
     rf = spec.setdefault("resolved_from", {})
     questions: list[dict[str, Any]] = []
@@ -122,11 +125,25 @@ def resolve(ws: Workspace, piece: Piece) -> dict[str, Any]:
             sh["wardrobe"] = sh.get("wardrobe") or pack.get("wardrobe_default")
         rf["qc_targets.skin"] = "pack"
     if asset:
-        ap = ws.root / asset
-        if not ap.exists():
+        try:
+            ap = inside(ws.root, asset, "product clip")
+        except FoundryError as e:
+            problems.append(str(e))
+            ap = None
+        if ap is None:
+            pass
+        elif not ap.exists():
             problems.append(f"product clip {asset} does not exist")
         elif ap.suffix.lower() not in VIDEO_EXT:
             problems.append(f"product clip {asset} is not a video ({ap.suffix})")
+        else:
+            info = qc_duration.probe(ap)
+            end = float(spec["assets"][0]["trim_s"][1])
+            if info["duration"] + 0.05 < end:
+                problems.append(f"product clip {asset} is {info['duration']}s but the cut trims to {end:g}s; "
+                                f"set assets.0.trim_s to fit")
+            if get_path(spec, "audio.kind") == "clip" and not info["has_audio"]:
+                problems.append(f"audio is 'clip' but {asset} has no audio track")
     if get_path(spec, "hook.line"):
         charter = read_json(ws.dir("accounts") / spec["account"] / "charter.json")
         lint = text_lint.lint(spec["hook"]["line"], charter)
@@ -148,6 +165,7 @@ def resolve(ws: Workspace, piece: Piece) -> dict[str, Any]:
 
 
 def set_values(ws: Workspace, piece: Piece, pairs: list[str], touch: bool = False) -> dict[str, Any]:
+    human_only("set")
     if piece.state not in ("created", "specced", "sheet_pending"):
         raise FoundryError(f"{piece.ref} is '{piece.state}'; the spec is frozen after approval")
     spec = piece.spec

@@ -1,22 +1,29 @@
 """One piece of content = one directory = one state machine.
 
     work/<account>/<slug>/
-        spec.json SPEC.md status.json invoice.json sheet/ frames/ clips/ cut/ qc/ publish.json
+        spec.json SPEC.md status.json invoice.json approved.lock.json
+        sheet/ frames/ clips/ cut/ qc/ publish.json
 
 status.json is the only place state lives; every command reads it, checks the
 transition is legal, and writes it back. invoice.json records a reservation
-BEFORE any provider call, so a crash never loses the spend record.
+BEFORE any provider call, so a crash never loses the spend record. At approval,
+approved.lock.json freezes the QC thresholds, the retry budget and a hash of
+spec.json: QC reads its limits from the lock and refuses if the spec changed.
 """
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
-from .util import Blocked, FoundryError, now, read_json, write_json
+from .util import (ACCOUNT_RE, SLUG_RE, Blocked, FoundryError, check_name, now, read_json, write_json)
 from .workspace import Workspace
 
 STATES = ["created", "specced", "sheet_pending", "approved", "building", "green", "blocked", "shipped"]
 STAGES = ["frames", "clip", "cut"]
+APPROVED = "frames/approved.png"
+LOCK = "approved.lock.json"
+COUNTED = ("reserved", "settled", "failed")  # a failed call may still have been billed
 
 
 class Piece:
@@ -26,8 +33,8 @@ class Piece:
     # ------------------------------------------------------------ locate
     @classmethod
     def create(cls, ws: Workspace, account: str, slug: str) -> "Piece":
-        if not account.startswith("@"):
-            raise FoundryError(f"account must start with @, got {account!r}")
+        check_name(account, ACCOUNT_RE, "account")
+        check_name(slug, SLUG_RE, "slug")
         path = ws.dir("work") / account / slug
         if (path / "status.json").exists():
             raise FoundryError(f"{path.relative_to(ws.root)} already exists")
@@ -41,10 +48,11 @@ class Piece:
 
     @classmethod
     def open(cls, ws: Workspace, ref: str) -> "Piece":
-        cands = [Path(ref), ws.root / ref, ws.dir("work") / ref.lstrip("/")]
-        for c in cands:
-            if (c / "status.json").exists():
-                return cls(ws, c.resolve())
+        work = ws.dir("work").resolve()
+        for c in (Path(ref), ws.root / ref, work / ref.lstrip("/")):
+            c = c.resolve()
+            if (c / "status.json").exists() and work in c.parents:
+                return cls(ws, c)
         raise FoundryError(f"no piece at {ref!r} (expected work/<@account>/<slug>/status.json)")
 
     @classmethod
@@ -79,7 +87,7 @@ class Piece:
         st = self.status
         st["state"] = state
         st.update(fields)
-        st["history"].append({"state": state, "at": now(), **{k: v for k, v in fields.items() if k != "history"}})
+        st["history"].append({"state": state, "at": now(), **fields})
         self.save_status(st)
         if (self.path / "spec.json").exists():  # SPEC.md carries the state line; keep it current
             from .spec import render_md
@@ -104,7 +112,7 @@ class Piece:
         self.set_state("blocked", blocked_gate=gate, blocked_evidence=evidence)
         return Blocked(gate, evidence)
 
-    # ------------------------------------------------------------ spec
+    # ------------------------------------------------------------ spec + lock
     @property
     def spec(self) -> dict[str, Any]:
         s = read_json(self.path / "spec.json")
@@ -114,39 +122,99 @@ class Piece:
 
     def save_spec(self, spec: dict[str, Any]) -> None:
         from .spec import render_md  # local import: spec imports piece
+        if (self.path / LOCK).exists():
+            raise FoundryError(f"{self.ref} is approved; its spec is frozen")
         write_json(self.path / "spec.json", spec)
         (self.path / "SPEC.md").write_text(render_md(spec, self))
+
+    def spec_hash(self) -> str:
+        return hashlib.sha256((self.path / "spec.json").read_bytes()).hexdigest()
+
+    def write_lock(self, fix_cycles: int) -> dict[str, Any]:
+        spec = self.spec
+        lock = {"spec_sha256": self.spec_hash(), "qc_targets": spec["qc_targets"], "fix_cycles": int(fix_cycles),
+                "locked_at": now()}
+        write_json(self.path / LOCK, lock)
+        return lock
+
+    @property
+    def lock(self) -> dict[str, Any]:
+        """The approved limits. Refuses when spec.json was edited after approval."""
+        lock = read_json(self.path / LOCK)
+        if not lock:
+            raise FoundryError(f"{self.ref} has no {LOCK}; approve the sheet first")
+        if self.spec_hash() != lock["spec_sha256"]:
+            raise self.block("spec.changed_after_approval",
+                             "spec.json no longer matches the approved hash; QC limits cannot be trusted")
+        return lock
+
+    def set_fix_cycles(self, n: int) -> None:
+        lock = read_json(self.path / LOCK)
+        lock["fix_cycles"] = int(n)
+        write_json(self.path / LOCK, lock)
+
+    def require_pass(self, stage: str) -> dict[str, Any]:
+        r = read_json(self.rel("qc", f"{stage}.json"))
+        if not r or not r["pass"]:
+            raise FoundryError(f"{stage} QC is not green yet; run foundry qc --stage {stage} first")
+        return r
 
     # ------------------------------------------------------------ invoice
     @property
     def invoice(self) -> dict[str, Any]:
-        return read_json(self.path / "invoice.json", {"frozen": False, "ceilings": {}, "planned": {}, "entries": []})
+        return read_json(self.path / "invoice.json",
+                         {"frozen": False, "ceilings": {}, "baseline": {}, "planned": {}, "entries": []})
 
     def spent(self, unit: str) -> float:
         return round(sum(e["amount"] for e in self.invoice["entries"]
-                         if e["unit"] == unit and e["state"] in ("reserved", "settled")), 2)
+                         if e["unit"] == unit and e["state"] in COUNTED), 2)
 
     def reserve(self, unit: str, amount: float, note: str) -> str:
-        """Write the spend BEFORE the call. Refuses (BLOCKED budget.<unit>) past the frozen ceiling."""
+        """Write the spend BEFORE the call. After approval, refuses (BLOCKED budget.<unit>) past the ceiling.
+
+        The ceiling covers spend since approval: sheet renders before approval are the price of deciding.
+        """
+        if amount <= 0:
+            raise FoundryError("reserve amount must be positive")
         inv = self.invoice
-        ceiling = inv["ceilings"].get(unit) if inv.get("frozen") else None
-        if ceiling is not None and self.spent(unit) + amount > ceiling + 1e-9:
-            raise self.block(f"budget.{unit}",
-                             f"{note} needs {amount} {unit}; spent {self.spent(unit)} of ceiling {ceiling}")
+        if inv.get("frozen") and unit in inv["ceilings"]:
+            since = self.spent(unit) - float(inv.get("baseline", {}).get(unit, 0))
+            if since + amount > inv["ceilings"][unit] + 1e-9:
+                raise self.block(f"budget.{unit}", f"{note} needs {amount} {unit}; {since:g} spent since approval "
+                                                   f"of ceiling {inv['ceilings'][unit]:g}")
         eid = f"e{len(inv['entries']) + 1:03d}"
         inv["entries"].append({"id": eid, "unit": unit, "amount": amount, "note": note,
                                "state": "reserved", "at": now()})
         write_json(self.path / "invoice.json", inv)
         return eid
 
-    def settle(self, eid: str, ok: bool, actual: float | None = None, ref: str | None = None) -> None:
+    def settle(self, eid: str, ok: bool, actual: float | None = None, ref: str | None = None) -> dict[str, Any]:
+        """One-way: reserved -> settled | failed. Never lowers a recorded charge."""
         inv = self.invoice
-        for e in inv["entries"]:
-            if e["id"] == eid:
-                e["state"] = "settled" if ok else "failed"
-                if actual is not None:
-                    e["amount"] = actual
-                if ref:
-                    e["ref"] = ref
-                e["settled_at"] = now()
+        e = next((x for x in inv["entries"] if x["id"] == eid), None)
+        if e is None:
+            raise FoundryError(f"no invoice entry {eid}")
+        if e["state"] != "reserved":
+            raise FoundryError(f"invoice entry {eid} is already {e['state']}")
+        if actual is not None and actual < e["amount"]:
+            raise FoundryError(f"actual {actual} is lower than the reserved {e['amount']}; charges are never lowered")
+        e["state"] = "settled" if ok else "failed"
+        if actual is not None:
+            e["amount"] = actual
+        if ref:
+            e["ref"] = ref
+        e["settled_at"] = now()
         write_json(self.path / "invoice.json", inv)
+        return e
+
+    def consume(self, unit: str, ref: str) -> dict[str, Any]:
+        """Tie a generated asset to the settled reservation that paid for it, once."""
+        inv = self.invoice
+        e = next((x for x in inv["entries"] if x["unit"] == unit and x.get("ref") == ref
+                  and x["state"] == "settled" and not x.get("consumed")), None)
+        if e is None:
+            raise FoundryError(f"no settled, unused {unit} reservation with ref {ref!r}; "
+                               f"reserve before generating and settle with --ref {ref}")
+        e["consumed"] = now()
+        write_json(self.path / "invoice.json", inv)
+        return e

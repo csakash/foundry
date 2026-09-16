@@ -3,6 +3,10 @@
 Mean absolute pixel difference (0..255, averaged over RGB) between the clip's first
 frame and approved.png resized to the clip's size. Higgsfield seedance_2_5 with a
 start image landed at 20.3 on the Imani clip (720x1280), so the default gate is 30.
+
+The approved frame (2:3) is stretched to the clip's size rather than cover-cropped:
+on the Imani clip stretch measured 20.3, cover-crop 21.7 and letterbox 26.7, so the
+provider fills the frame. Face-box fractions therefore carry over unchanged.
 """
 from __future__ import annotations
 

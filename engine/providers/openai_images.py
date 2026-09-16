@@ -1,7 +1,10 @@
 """OpenAI images API: text-to-image and image edit, stdlib only.
 
+- One image per request, looped, exactly like the proven casting script
+  (gmm-contents pipeline/gen_casting_openai.py): a refusal costs one candidate, not all.
 - Rate limit: the org caps input images per minute; every call waits for enough
-  slots in a sliding 60 s window before it is sent.
+  slots in a sliding 60 s window before it is sent. A 429 waits out a full window.
+- Transport errors and timeouts are retried; the timeout matches the proven script (600 s).
 - Moderation: gpt-image refusals are stochastic (the Imani cast cleared about one
   bootstrap in three), so a 400 whose body names moderation/safety is retried up to
   `retries` times. Every other error raises immediately.
@@ -13,7 +16,6 @@ import base64
 import json
 import mimetypes
 import os
-import threading
 import time
 import urllib.error
 import urllib.request
@@ -34,10 +36,10 @@ class OpenAIImages:
     kind = "openai-images"
 
     def __init__(self, model: str = "gpt-image-2.5-sunburst", quality: str = "high", rpm_images: int = 5,
-                 retries: int = 5, timeout: int = 300):
+                 retries: int = 5, timeout: int = 600, sleep=time.sleep):
         self.model, self.quality, self.rpm, self.retries, self.timeout = model, quality, rpm_images, retries, timeout
         self._slots: list[float] = []
-        self._lock = threading.Lock()
+        self._sleep = sleep
 
     # ------------------------------------------------------------ plumbing
     @property
@@ -50,14 +52,12 @@ class OpenAIImages:
     def _wait_slots(self, n: int) -> None:
         n = max(1, min(n, self.rpm))
         while True:
-            with self._lock:
-                t = time.monotonic()
-                self._slots = [s for s in self._slots if t - s < 60]
-                if len(self._slots) + n <= self.rpm:
-                    self._slots += [t] * n
-                    return
-                wait = 60 - (t - self._slots[0]) + 0.5
-            time.sleep(wait)
+            t = time.monotonic()
+            self._slots = [s for s in self._slots if t - s < 60]
+            if len(self._slots) + n <= self.rpm:
+                self._slots += [t] * n
+                return
+            self._sleep(60 - (t - self._slots[0]) + 0.5)
 
     def _post(self, url: str, body: bytes, content_type: str) -> dict:
         req = urllib.request.Request(url, data=body, method="POST", headers={
@@ -77,26 +77,38 @@ class OpenAIImages:
                 last = text[:400]
                 if e.code == 400 and any(w in text.lower() for w in ("moderation", "safety", "content_policy")):
                     continue
-                if e.code in (429, 500, 502, 503) and attempt < self.retries:
-                    time.sleep(min(60, 5 * attempt))
+                if e.code == 429 and attempt < self.retries:
+                    self._sleep(62)
+                    continue
+                if e.code in (500, 502, 503) and attempt < self.retries:
+                    self._sleep(min(60, 5 * attempt))
                     continue
                 raise RuntimeError(f"OpenAI images HTTP {e.code}: {last}") from None
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+                last = f"transport: {e}"
+                if attempt < self.retries:
+                    self._sleep(min(60, 5 * attempt))
+                    continue
+                raise RuntimeError(f"OpenAI images unreachable after {attempt} attempts: {last}") from None
         raise ImageRefused(f"refused {self.retries}x on safety grounds: {last}")
 
     # ------------------------------------------------------------ API
     def generate(self, prompt: str, n: int = 1, size: str = "1024x1536") -> list[bytes]:
-        body = json.dumps({"model": self.model, "prompt": prompt, "n": n, "size": size,
+        body = json.dumps({"model": self.model, "prompt": prompt, "n": 1, "size": size,
                            "quality": self.quality}).encode()
-        return self._call(GEN, body, "application/json", images_in=1)
+        return [img for _ in range(n) for img in self._call(GEN, body, "application/json", images_in=1)]
 
     def edit(self, prompt: str, refs: Sequence[str | Path], n: int = 1, size: str = "1024x1536") -> list[bytes]:
+        return [img for _ in range(n) for img in self._edit_one(prompt, refs, size)]
+
+    def _edit_one(self, prompt: str, refs: Sequence[str | Path], size: str) -> list[bytes]:
         boundary = uuid.uuid4().hex
         parts: list[bytes] = []
 
         def field(name: str, value: str) -> None:
             parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
 
-        for k, v in (("model", self.model), ("prompt", prompt), ("n", str(n)), ("size", size),
+        for k, v in (("model", self.model), ("prompt", prompt), ("n", "1"), ("size", size),
                      ("quality", self.quality)):
             field(k, v)
         for ref in refs:

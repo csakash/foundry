@@ -34,8 +34,9 @@ class FakeImages:
         im = Image.new("RGB", (w, h), (52, 53, 55))
         d = ImageDraw.Draw(im)
         if w > h:  # a character sheet: seven heads across the top row
-            for k in range(7):
-                cx = (k + 0.5) * w / 7
+            panels = 7  # foundry.cast.SHEET_PANELS; engine must not import foundry
+            for k in range(panels):
+                cx = (k + 0.5) * w / panels
                 d.ellipse([cx - w / 30, h * 0.06, cx + w / 30, h * 0.28], fill=self.skin)
         else:
             jx = float(rng.uniform(-0.02, 0.02))

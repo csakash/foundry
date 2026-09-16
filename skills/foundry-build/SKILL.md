@@ -19,18 +19,19 @@ extra digits, no hand melting into the face. When unsure, fail it and say why.
 **Video.** Preflight reachability once with the Higgsfield `balance` tool.
 1. `foundry prompt <piece> --kind motion --json` (add `--guidance-from clip` on a retry).
 2. `models_explore` for `seedance_2_5` once: find the start-image media role and allowed durations.
-3. `media_upload` with filename `approved.png`, PUT the bytes with `curl -X PUT --upload-file`,
-   then `media_confirm` with type image.
+3. `media_upload` with filename `approved.png`, then `foundry upload <piece> --url <upload_url>`
+   (it can only send the approved frame), then `media_confirm` with type image.
 4. `generate_video` with `get_cost: true`, the params from step 1, and the media role from step 2.
    If it returns a preset recommendation instead of a cost, re-send with `declined_preset_id`.
 5. `foundry reserve <piece> --unit video_credits --amount <cost> --json`. BLOCKED means stop.
 6. `generate_video` for real (same params, no `get_cost`). `jobs_wait` until terminal
-   (`poll_after_seconds` between calls). Download the result URL with curl.
-7. `foundry settle <piece> <entry> --ok --ref <job_id>` (or `--failed` if the job failed),
-   then `foundry ingest-clip <piece> <mp4> --job <job_id> --json`.
+   (`poll_after_seconds` between calls).
+7. `foundry settle <piece> <entry> --ok --ref <job_id>` (or `--failed` if the job failed), then
+   `foundry fetch <piece> --url <result url> --job <job_id> --json`. A clip is only accepted with
+   the settled reservation that paid for it.
 
 Never retry a submission whose outcome is unknown after a timeout; reuse the job id.
 
-**Rules.** Never edit `qc/*.json`, `status.json` or `invoice.json`. Never run `foundry ship`.
+**Rules.** You cannot edit files and there is no raw shell: only `foundry`, Read and the video tools. Never run `foundry ship`.
 Any BLOCKED: print `BLOCKED <gate>: <evidence>` and stop with the files kept. On green,
 report credits used (`foundry ls --json`) and hand off to `/foundry-ship`.

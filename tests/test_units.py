@@ -12,6 +12,8 @@ from foundry import build, caption, cast, spec as spec_mod, util, workspace
 from foundry.piece import Piece
 from foundry.util import Blocked, FoundryError, read_json, write_json
 
+from PIL import Image
+
 from .conftest import video
 
 
@@ -69,16 +71,22 @@ def test_dotted_paths_and_values():
 # ---------------------------------------------------------------- invoice
 def test_invoice_reserve_settle_and_ceiling(ws):
     p = Piece.create(ws, "@t", "inv")
-    e1 = p.reserve("video_credits", 32.5, "unfrozen: no ceiling")
+    e1 = p.reserve("video_credits", 32.5, "before approval: no ceiling")
     p.settle(e1, ok=False)
-    assert p.spent("video_credits") == 0
+    assert p.spent("video_credits") == 32.5  # a failed call may still be billed
+    with pytest.raises(FoundryError, match="already failed"):
+        p.settle(e1, ok=True)
     inv = p.invoice
-    inv.update(frozen=True, ceilings={"video_credits": 40})
+    inv.update(frozen=True, ceilings={"video_credits": 40}, baseline={"video_credits": 32.5})
     write_json(p.rel("invoice.json"), inv)
-    p.reserve("video_credits", 32.5, "first")
+    e2 = p.reserve("video_credits", 32.5, "first after approval")
+    with pytest.raises(FoundryError, match="never lowered"):
+        p.settle(e2, ok=True, actual=1)
     with pytest.raises(Blocked, match="budget.video_credits"):
         p.reserve("video_credits", 32.5, "second")
     assert p.state == "blocked"
+    with pytest.raises(FoundryError):
+        p.reserve("video_credits", 0, "zero")
 
 
 def test_piece_refuses_bad_account_and_duplicates(ws):
@@ -127,7 +135,7 @@ def test_resolver_problems_and_warnings(ws):
 
 def test_resolver_complete_sets_budget_and_state(ws):
     locked(ws, "nova")
-    video(ws.root / "clip.mp4", seconds=1)
+    video(ws.root / "clip.mp4", seconds=21)
     p = spec_mod.new(ws, "@t", "done")
     r = spec_mod.set_values(ws, p, ["hook.line=ok", "assets.0.path=clip.mp4"])
     assert r["complete"] and p.state == "specced"
@@ -141,7 +149,7 @@ def test_resolver_complete_sets_budget_and_state(ws):
 
 def test_set_reopens_and_freezes(ws):
     locked(ws, "nova")
-    video(ws.root / "clip.mp4", seconds=1)
+    video(ws.root / "clip.mp4", seconds=21)
     p = spec_mod.new(ws, "@t", "freeze")
     spec_mod.set_values(ws, p, ["hook.line=ok", "assets.0.path=clip.mp4"])
     p.set_state("approved")
@@ -151,7 +159,7 @@ def test_set_reopens_and_freezes(ws):
 
 def test_prompts_render_from_pack_and_scene(ws):
     locked(ws, "nova")
-    video(ws.root / "clip.mp4", seconds=1)
+    video(ws.root / "clip.mp4", seconds=21)
     p = spec_mod.new(ws, "@t", "prompts")
     spec_mod.set_values(ws, p, ["hook.line=ok line", "assets.0.path=clip.mp4"])
     s = p.spec
@@ -199,25 +207,152 @@ def test_caption_numbers_and_band(tmp_path):
 # ---------------------------------------------------------------- build modes
 def test_build_modes(ws):
     locked(ws, "nova")
-    video(ws.root / "clip.mp4", seconds=1)
+    video(ws.root / "clip.mp4", seconds=21)
     p = spec_mod.new(ws, "@t", "modes")
     spec_mod.set_values(ws, p, ["hook.line=ok", "assets.0.path=clip.mp4"])
     with pytest.raises(FoundryError, match="approved sheet"):
         build.build(ws, p, "bypass", dry_run=True)
     p.set_state("approved")
+    p.write_lock(2)
     with pytest.raises(FoundryError, match="autonomous"):
         build.build(ws, p, "autonomous", dry_run=True)
-    out = build.build(ws, p, "bypass", cycles=3, dry_run=True)
-    assert "--permission-mode" in out["argv"] and "acceptEdits" in out["argv"] and "warning" in out
-    assert p.status["fix_cycles"] == 3 and "3 regeneration(s)" in out["prompt"]
     with pytest.raises(FoundryError, match="mcp_server"):
-        build.build(ws, p, "bypass")
+        build.build(ws, p, "bypass", dry_run=True)
     cfg = read_json(ws.root / "foundry.json")
-    cfg.setdefault("providers", {}).setdefault("video", {})["mcp_server"] = "higgsfield"
+    cfg["providers"]["video"]["mcp_server"] = "higgs field; Write"
     write_json(ws.root / "foundry.json", cfg)
-    out = build.build(workspace.load(ws.root), p, "bypass", dry_run=True)
-    assert "mcp__higgsfield" in out["argv"][-1] and "warning" not in out
+    with pytest.raises(FoundryError, match="must match"):
+        build.build(workspace.load(ws.root), p, "bypass", dry_run=True)
+    cfg["providers"]["video"]["mcp_server"] = "higgsfield"
+    write_json(ws.root / "foundry.json", cfg)
+    out = build.build(workspace.load(ws.root), p, "bypass", cycles=3, dry_run=True)
+    a = out["argv"]
+    assert a[a.index("--permission-mode") + 1] == "default"
+    allowed = a[a.index("--allowedTools") + 1:a.index("--disallowedTools")]
+    assert allowed == ["Bash(foundry:*)", "Read", "mcp__higgsfield"]
+    assert {"Edit", "Write", "Bash(foundry ship:*)", "Bash(foundry approve:*)"} <= set(a[a.index("--disallowedTools") + 1:])
+    assert "3 regeneration(s)" in out["prompt"] and p.lock["fix_cycles"] == 2  # dry run persists nothing
     assert build.build(ws, p, "interactive")["next"].startswith("run /foundry-build")
+
+
+def test_agent_env_refuses_build(ws, monkeypatch):
+    monkeypatch.setenv("FOUNDRY_AGENT", "1")
+    p = Piece.create(ws, "@t", "nested")
+    with pytest.raises(FoundryError, match="human step"):
+        build.build(ws, p, "bypass", dry_run=True)
+
+
+# ---------------------------------------------------------------- guards
+@pytest.mark.parametrize("fn,args", [
+    ("check_name", ("@a/../b", util.ACCOUNT_RE, "account")),
+    ("check_name", ("Bad Slug", util.SLUG_RE, "slug")),
+    ("check_name", ("c0", util.CANDIDATE_RE, "candidate")),
+    ("check_name", ("shot/01", util.SHOT_RE, "shot")),
+])
+def test_name_guards(fn, args):
+    with pytest.raises(FoundryError, match="invalid"):
+        getattr(util, fn)(*args)
+
+
+def test_inside_guard(tmp_path):
+    (tmp_path / "a").mkdir()
+    assert util.inside(tmp_path, "a", "x") == (tmp_path / "a").resolve()
+    for bad in ("../x", "/etc/hosts", "a/../../x"):
+        with pytest.raises(FoundryError, match="outside"):
+            util.inside(tmp_path, bad, "x")
+
+
+def test_region_and_verdict_validation(ws):
+    from foundry import loop
+    p = Piece.create(ws, "@t", "obs")
+    (p.path / "frames").mkdir()
+    Image.new("RGB", (10, 10)).save(p.path / "frames/approved.png")
+    for bad in ((0.6, 0.2, 0.4, 0.5), (0, 0, 1.2, 1)):
+        with pytest.raises(FoundryError, match="face box"):
+            loop.record_region(p, "frames/approved.png", bad)
+    with pytest.raises(FoundryError, match="outside"):
+        loop.record_region(p, "../../../foundry.json", (0.1, 0.1, 0.5, 0.5))
+    assert loop.record_region(p, "./frames/approved.png", (0.1, 0.1, 0.5, 0.5))["face"] == [0.1, 0.1, 0.5, 0.5]
+    assert "frames/approved.png" in loop.regions(p)
+    with pytest.raises(FoundryError):
+        loop.record_verdict(p, "skin", "frames", True)
+    with pytest.raises(FoundryError):
+        loop.record_verdict(p, "hands", "cut", True)
+
+
+def test_concat_escapes_quotes(tmp_path):
+    from foundry import media
+    d = tmp_path / "o'neil"
+    d.mkdir()
+    parts = [video(d / "a.mp4", seconds=1, audio="tone"), video(d / "b.mp4", seconds=1, audio="tone")]
+    out = media.concat(parts, d / "joined.mp4")
+    from engine.qc.duration import probe
+    assert probe(out)["duration"] == pytest.approx(2.0, abs=0.2)
+    with pytest.raises(ValueError):
+        media._concat_escape(Path("bad\nname"))
+
+
+# ---------------------------------------------------------------- providers + doctor
+def test_openai_retries_moderation_then_refuses(monkeypatch):
+    import io as _io
+    import urllib.error
+    from engine.providers.openai_images import ImageRefused, OpenAIImages
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    calls = []
+    prov = OpenAIImages(retries=3, rpm_images=100, sleep=lambda s: None)
+
+    def refuse(*a):
+        calls.append(1)
+        raise urllib.error.HTTPError("u", 400, "x", {}, _io.BytesIO(b'{"error":"moderation_blocked"}'))
+    monkeypatch.setattr(prov, "_post", refuse)
+    with pytest.raises(ImageRefused):
+        prov.generate("x")
+    assert len(calls) == 3
+
+    def bad_request(*a):
+        raise urllib.error.HTTPError("u", 400, "x", {}, _io.BytesIO(b'{"error":"invalid size"}'))
+    monkeypatch.setattr(prov, "_post", bad_request)
+    with pytest.raises(RuntimeError, match="HTTP 400"):
+        prov.generate("x")
+
+
+def test_openai_n_is_one_per_request_and_429_waits(monkeypatch):
+    import base64 as _b64
+    import io as _io
+    import json as _json
+    import urllib.error
+    from engine.providers.openai_images import OpenAIImages
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    slept, bodies = [], []
+    prov = OpenAIImages(retries=3, rpm_images=100, sleep=slept.append)
+    state = {"n": 0}
+
+    def post(url, body, ctype):
+        state["n"] += 1
+        bodies.append(body)
+        if state["n"] == 1:
+            raise urllib.error.HTTPError("u", 429, "x", {}, _io.BytesIO(b"rate"))
+        if state["n"] == 2:
+            raise urllib.error.URLError("reset")
+        return {"data": [{"b64_json": _b64.b64encode(b"png").decode()}]}
+    monkeypatch.setattr(prov, "_post", post)
+    assert prov.generate("x", n=2) == [b"png", b"png"]
+    assert all(_json.loads(b)["n"] == 1 for b in bodies)
+    assert slept[0] == 62
+
+
+def test_doctor_offline(ws, monkeypatch):
+    from foundry import ops
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    fake = ops.doctor(ws, offline=True)
+    assert any(r["check"] == "image provider" and r["status"] == "warn" for r in fake["checks"])
+    cfg = read_json(ws.root / "foundry.json")
+    cfg["providers"]["image"] = {"kind": "openai-images"}
+    write_json(ws.root / "foundry.json", cfg)
+    real = ops.doctor(workspace.load(ws.root), offline=True)
+    assert real["status"] == "fail"
+    assert next(r for r in real["checks"] if r["check"] == "OPENAI_API_KEY")["status"] == "fail"
+    assert ops.doctor(None, offline=True)["status"] == "fail"
 
 
 # ---------------------------------------------------------------- formats router

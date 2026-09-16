@@ -8,8 +8,8 @@ from __future__ import annotations
 from typing import Any
 
 from .loop import run_qc
-from .piece import STAGES, Piece
-from .util import FoundryError, now, read_json, write_json
+from .piece import Piece
+from .util import FoundryError, human_only, now, read_json, write_json
 from .workspace import Workspace
 
 RECIPE_PARAMETERS = [
@@ -19,10 +19,10 @@ RECIPE_PARAMETERS = [
 
 
 def ship(ws: Workspace, piece: Piece, recipe_name: str | None = None) -> dict[str, Any]:
+    human_only("ship")
     piece.require("green")
     for s in ("frames", "clip"):
-        if not (read_json(piece.rel("qc", f"{s}.json")) or {}).get("pass"):
-            raise FoundryError(f"{s} QC is not green; never ship red")
+        piece.require_pass(s)
     report = run_qc(ws, piece, "cut")
     if not report["pass"]:
         raise FoundryError("cut QC went red on the ship re-check: " + report["guidance"])
@@ -36,7 +36,8 @@ def ship(ws: Workspace, piece: Piece, recipe_name: str | None = None) -> dict[st
                                 f"Then record it: foundry posted {piece.ref} --url <post url>"]}
     write_json(piece.rel("publish.json"), publish)
 
-    name = recipe_name or spec["slug"]
+    from .util import SLUG_RE, check_name
+    name = check_name(recipe_name or spec["slug"], SLUG_RE, "recipe name")
     inv = piece.invoice
     recipe = {
         "id": name, "name": name, "made_from": piece.ref, "saved_at": now(), "post_type": "video", "format": spec["format"],
@@ -47,6 +48,7 @@ def ship(ws: Workspace, piece: Piece, recipe_name: str | None = None) -> dict[st
         "touches": piece.status.get("touches", 0),
         "cycles": piece.status["cycles"],
         "invoice_ceilings": inv.get("ceilings"),
+        "qc_targets_approved": piece.lock["qc_targets"],
     }
     write_json(ws.dir("pipelines") / f"{name}.json", recipe)
     piece.set_state("shipped", shipped_at=now(), recipe=name)
@@ -56,6 +58,7 @@ def ship(ws: Workspace, piece: Piece, recipe_name: str | None = None) -> dict[st
 
 
 def posted(ws: Workspace, piece: Piece, url: str | None) -> dict[str, Any]:
+    human_only("posted")
     piece.require("shipped")
     pub = read_json(piece.rel("publish.json"))
     pub.update(posted_at=now(), post_url=url)

@@ -19,7 +19,7 @@ from engine.qc import safety_lint, skin
 
 from . import REPO
 from .imaging import contact, save_png
-from .util import Blocked, FoundryError, now, read_json, write_json
+from .util import CANDIDATE_RE, NAME_RE, Blocked, FoundryError, check_name, human_only, now, read_json, write_json
 from .workspace import Workspace
 
 DEFAULT_FACE = (0.33, 0.22, 0.67, 0.55)
@@ -29,8 +29,11 @@ CAMERA_RULE = ("Every shot needs a nameable camera position the creator set up t
                "POV, object/detail, or handed-over. In a selfie one hand is the camera.")
 
 
+SHEET_PANELS = 7  # the sheet template asks for seven heads across the top row
+
+
 def pdir(ws: Workspace, name: str) -> Path:
-    return ws.dir("personas") / name
+    return ws.dir("personas") / check_name(name, NAME_RE, "persona name")
 
 
 def state(ws: Workspace, name: str) -> dict[str, Any]:
@@ -49,6 +52,7 @@ def skin_rule(m: dict[str, float]) -> str:
 
 
 def bootstrap(ws: Workspace, name: str, brief: str, n: int = 3, provider=None) -> dict[str, Any]:
+    human_only("cast")
     st = state(ws, name)
     if (pdir(ws, name) / "pack.json").exists():
         raise FoundryError(f"personas/{name} is already locked (pack.json exists)")
@@ -74,13 +78,16 @@ def bootstrap(ws: Workspace, name: str, brief: str, n: int = 3, provider=None) -
 def measure_sheet(sheet_path: Path) -> dict[str, Any]:
     a = skin.crop(skin.load_rgb(sheet_path), SHEET_TOP_ROW)
     w = a.shape[1]
-    panels = [skin.measure_array(a[:, int(i * w / 7):int((i + 1) * w / 7)]) for i in range(7)]
+    panels = [skin.measure_array(a[:, int(i * w / SHEET_PANELS):int((i + 1) * w / SHEET_PANELS)])
+              for i in range(SHEET_PANELS)]
     lums = [p["lum"] for p in panels if p]
     return {"row": skin.measure_array(a), "panels": panels, "measured_panels": len(lums),
             "panel_spread": round(max(lums) - min(lums), 1) if lums else None}
 
 
 def pick(ws: Workspace, name: str, candidate: str, face: Sequence[float] | None = None, provider=None) -> dict[str, Any]:
+    human_only("cast --pick")
+    check_name(candidate, CANDIDATE_RE, "candidate")
     st = state(ws, name)
     if st["state"] not in ("candidates", "blocked", "sheet_measured"):
         raise FoundryError(f"personas/{name} is '{st['state']}'; run `foundry cast {name} --brief ...` first")
@@ -107,7 +114,7 @@ def pick(ws: Workspace, name: str, candidate: str, face: Sequence[float] | None 
     cfg = ws.config["cast"]
     fails = []
     if sheet_m["row"] is None or sheet_m["measured_panels"] < 4:
-        fails.append(f"only {sheet_m['measured_panels']} of 7 top-row panels have measurable skin")
+        fails.append(f"only {sheet_m['measured_panels']} of {SHEET_PANELS} top-row panels have measurable skin")
     else:
         delta = round(sheet_m["row"]["lum"] - master_m["lum"], 1)
         if abs(delta) > cfg["max_sheet_lum_delta"]:
@@ -127,6 +134,7 @@ def pick(ws: Workspace, name: str, candidate: str, face: Sequence[float] | None 
 
 
 def approve(ws: Workspace, name: str, story: str | None = None, wardrobe: str | None = None) -> dict[str, Any]:
+    human_only("cast --approve")
     st = state(ws, name)
     if st["state"] != "sheet_measured":
         raise FoundryError(f"personas/{name} is '{st['state']}'; the sheet must be measured green before approval")
