@@ -1,0 +1,17 @@
+{
+  "about": "Phrases that trip gpt-image / seedance safety filters, with the rewrite that cleared. Add a row when a refusal teaches a new one.",
+  "phrases": [
+    {"phrase": "sheer", "rewrite": "opaque", "why": "OpenAI sexual-safety filter refused every attempt that described clothing as sheer (Imani cast, 2026-09-15)"},
+    {"phrase": "see-through", "rewrite": "opaque", "why": "same class as sheer"},
+    {"phrase": "transparent fabric", "rewrite": "opaque fabric", "why": "same class as sheer"},
+    {"phrase": "lingerie", "rewrite": "loungewear", "why": "garment class flagged regardless of context"},
+    {"phrase": "cleavage", "rewrite": "neckline", "why": "body-part emphasis flagged"},
+    {"phrase": "plunging neckline", "rewrite": "square neckline", "why": "body-part emphasis flagged"},
+    {"phrase": "bare skin", "rewrite": "skin", "why": "nudity-adjacent wording"},
+    {"phrase": "wet", "rewrite": "dewy", "why": "wet + skin reads as suggestive to the classifier"},
+    {"phrase": "seductive", "rewrite": "confident", "why": "sexual framing"},
+    {"phrase": "sultry", "rewrite": "calm", "why": "sexual framing"},
+    {"phrase": "teenage", "rewrite": "adult", "why": "minor-adjacent wording blocks any body description"},
+    {"phrase": "young girl", "rewrite": "young woman", "why": "minor-adjacent wording"}
+  ]
+}
