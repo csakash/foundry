@@ -1,0 +1,21 @@
+{
+  "about": "Hook mechanisms for on-screen reaction-video text. Taxonomy after Zuhair Lakhani's public hook-writing guide (X, 2026-09-15); definitions paraphrased, no example lines copied. The text is the setup, the face is the answer.",
+  "mechanisms": {
+    "drama": {"runs_on": "a personal story already in motion, payoff withheld; trailing '..' instead of a full stop", "faces": ["shocked", "surprised", "sad", "embarrassed", "frustrated"]},
+    "story": {"runs_on": "a specific person walking through something they did, with odd checkable numbers", "faces": ["calm", "thoughtful", "proud", "happy", "curious"]},
+    "credential": {"runs_on": "an ordinary narrator borrowing a named role's authority", "faces": ["calm", "proud", "thoughtful", "deadpan", "skeptical"]},
+    "insider": {"runs_on": "a closed or far-away world the viewer cannot see into, one word in caps", "faces": ["curious", "surprised", "skeptical", "calm"]},
+    "numbered": {"runs_on": "a numbered contract made alive by one modifier; a bare 'N tips' is dead", "faces": ["calm", "deadpan", "thoughtful", "happy", "excited"]},
+    "diagnostic": {"runs_on": "a self-check the viewer must run against a list", "faces": ["skeptical", "deadpan", "thoughtful", "calm", "confused"]},
+    "inversion": {"runs_on": "naming the consensus and promising to break it", "faces": ["deadpan", "skeptical", "calm", "thoughtful"]},
+    "overheard": {"runs_on": "someone else's words in quotes, slightly rude, doubles as comment bait", "faces": ["deadpan", "skeptical", "confused", "laughing", "flirty"]},
+    "confession": {"runs_on": "the narrator admitting something costly", "faces": ["sad", "embarrassed", "thoughtful", "calm", "relieved"]},
+    "pov": {"runs_on": "placing the viewer inside a frame", "faces": ["happy", "proud", "calm", "laughing", "excited", "curious"]},
+    "value": {"runs_on": "no gap, just a thing almost everyone wants; only works if what follows is useful", "faces": ["calm", "happy", "thoughtful", "proud"]},
+    "take": {"runs_on": "in-group signalling plus argument bait", "faces": ["deadpan", "proud", "skeptical", "calm", "frustrated"]},
+    "fourthwall": {"runs_on": "naming what the viewer is doing right now, then rewarding it", "faces": ["happy", "calm", "laughing", "flirty", "proud"]},
+    "transformation": {"runs_on": "before and after with a specific number, the how withheld; carries a product most naturally", "faces": ["proud", "happy", "excited", "relieved", "surprised"]},
+    "wall": {"runs_on": "one phone-typed lowercase thought of 30 to 50 words naming an irritation and a realization", "faces": ["calm", "thoughtful", "deadpan", "frustrated", "relieved", "sad"]}
+  },
+  "scene_faces": {"reaction-facepalm-reveal": ["shocked", "surprised"]}
+}

@@ -1,0 +1,22 @@
+{
+  "id": "reaction-facepalm-reveal",
+  "title": "Facepalm at the laptop, then a wide-eyed look into the lens",
+  "source": "Imani salary-hook reel, 2026-09-15 (reference reel instagram.com/reel/DcdX-DWpiP-, 2.1 s reaction stretched to 5 s)",
+  "camera": "propped",
+  "camera_text": "A phone propped upright on top of the laptop screen, pointing at them from just above eye level and angled slightly down. Close medium shot from the top of the head to mid-torso. The open laptop's keyboard runs along the bottom edge of the frame, close to the lens and slightly soft.",
+  "setting": "Their home at night. Behind them and softly out of focus: a plain wall, a floor lamp with a pale drum shade on one side, a muted curtain at the other edge of the frame.",
+  "light": "Face, hands and chest are lit mainly by the COOL neutral-white glow of the laptop screen in front of them. The lamp gives a warm glow in the BACKGROUND ONLY and never reaches the skin. Dim, low-key, candid phone-camera exposure with slight sensor noise in the shadows.",
+  "first_frame_action": "They have just seen something on the laptop screen and cannot believe it. They sit at the laptop leaning slightly forward, head tipped down and a little to one side, with one hand pressed flat over the eyes and forehead in a disbelieving facepalm: palm covers both eyes and brows, fingers spread up into the hair, elbow lifted out to the side. Below the hand the nose, slightly parted lips and jaw stay clearly visible. The other forearm rests beside the laptop.",
+  "caption_space": "Their head sits in the upper-middle of the frame with empty wall above it where a caption will be added later. Leave that space empty.",
+  "face_region_hint": [0.30, 0.22, 0.70, 0.56],
+  "duration_s": 5,
+  "beats": [
+    {"t": [0.0, 0.7], "action": "holds the facepalm, hand flat over the eyes, and lets out a disbelieving breath, shoulders dropping slightly"},
+    {"t": [0.7, 1.5], "action": "drags the hand up and off the face, eyes still locked on the laptop screen, jaw falling open in shock"},
+    {"t": [1.5, 2.4], "action": "the hand opens into a raised palm beside the head, fingers spread, in a 'hold on, wait' gesture, staring at the screen in disbelief"},
+    {"t": [2.4, 3.2], "action": "turns the head away from the laptop toward the camera, eyes snapping up into the lens"},
+    {"t": [3.2, 5.0], "action": "holds eye contact with the camera: eyes very wide, eyebrows raised high, mouth open in an 'O', leaning slightly toward the lens, raised palm still beside the head, with a tiny disbelieving head shake"}
+  ],
+  "motion_rules": "The camera stays locked off with faint handheld micro-jitter. No cuts, no zoom, no speech. Lighting is constant.",
+  "motion_negative": "text, captions, talking, lip-sync, face morphing, identity change, skin tone change, camera movement, zoom, cut, extra fingers, distorted hands, clothing changing"
+}

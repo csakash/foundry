@@ -1,0 +1,10 @@
+Using the reference image only for the character's face and colouring, draw ONE storyboard sheet as a clean pencil-and-grey-wash illustration on white paper, landscape layout. It is a planning sketch, not a photograph.
+
+TOP STRIP: the title "{title}" in plain capitals, and a small portrait of the character labelled "{name}".
+
+PANELS, left to right, each a vertical 9:16 frame with a thin black border, a timestamp and a short label underneath:
+{panels}
+
+Draw the caption position as a light rectangle at the top of the first panel with the words "{caption}" written inside it.
+
+Plain, legible, minimal. No colour except light grey wash. No logos, no watermark.
