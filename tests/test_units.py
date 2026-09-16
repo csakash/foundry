@@ -59,6 +59,35 @@ def test_dotenv_does_not_override(tmp_path, monkeypatch):
     monkeypatch.delenv("FOUNDRY_T2")
 
 
+def test_dotenv_values_with_spaces_and_comments(tmp_path, monkeypatch):
+    for k in ("FT_A", "FT_B", "FT_C"):
+        monkeypatch.delenv(k, raising=False)
+    (tmp_path / ".env").write_text("FT_A=\"quoted\"   \nFT_B=plain value  # a comment\nFT_C='has # inside'\n")
+    util.load_dotenv(tmp_path / ".env")
+    assert (os.environ["FT_A"], os.environ["FT_B"], os.environ["FT_C"]) == ("quoted", "plain value", "has # inside")
+    for k in ("FT_A", "FT_B", "FT_C"):
+        monkeypatch.delenv(k, raising=False)
+
+
+def test_rate_window_is_shared_across_processes(tmp_path):
+    from engine.providers.openai_images import OpenAIImages
+    waits = []
+    a = OpenAIImages(rpm_images=2, state_file=tmp_path / "rate.json", sleep=waits.append)
+    b = OpenAIImages(rpm_images=2, state_file=tmp_path / "rate.json", sleep=waits.append)
+    assert a._take(2) == 0.0
+    assert b._take(1) > 50  # b sees a's slots
+
+
+def test_drift_catches_a_face_only_change(tmp_path):
+    from engine.qc import drift
+    from .conftest import portrait
+    frames = [portrait(tmp_path / f"f{i}.png", seed=i) for i in range(3)]
+    frames.append(portrait(tmp_path / "changed.png", skin=(95, 70, 55), seed=9))  # skin warmer and lighter, backdrop same
+    whole = drift.check(frames, max_lum=12, max_rb=12)
+    boxed = drift.check(frames, max_lum=12, max_rb=12, face_box=(0.36, 0.28, 0.64, 0.52))
+    assert not boxed["pass"] and boxed["measures"]["face"]["max_rb"] >= whole["measures"]["frame"]["max_rb"]
+
+
 def test_dotted_paths_and_values():
     d: dict = {}
     util.set_path(d, "assets.0.path", "a.mp4")
@@ -128,8 +157,11 @@ def test_resolver_problems_and_warnings(ws):
     (ws.root / "notes.txt").write_text("x")
     p = spec_mod.new(ws, "@t", "warn")
     r = spec_mod.set_values(ws, p, ["hook.line=How I get rich — fast", "assets.0.path=notes.txt"], touch=True)
-    assert not r["complete"] and "not a video" in r["problems"][0]
-    assert any("get rich" in w for w in r["warnings"]) and any("dash" in w for w in r["warnings"])
+    assert not r["complete"] and any("not a video" in x for x in r["problems"])
+    assert any("get rich" in x for x in r["problems"]) and any("dash" in x for x in r["problems"])
+    long_line = "word " * 60
+    r = spec_mod.set_values(ws, p, [f"hook.line={long_line.strip()}"])
+    assert any(x.startswith("caption:") or "characters" in x for x in r["problems"])
     assert p.status["touches"] == 1 and p.state == "created"
 
 
@@ -227,10 +259,12 @@ def test_build_modes(ws):
     write_json(ws.root / "foundry.json", cfg)
     out = build.build(workspace.load(ws.root), p, "bypass", cycles=3, dry_run=True)
     a = out["argv"]
-    assert a[a.index("--permission-mode") + 1] == "default"
+    assert a[a.index("--permission-mode") + 1] == "dontAsk"
     allowed = a[a.index("--allowedTools") + 1:a.index("--disallowedTools")]
-    assert allowed == ["Bash(foundry:*)", "Read", "mcp__higgsfield"]
-    assert {"Edit", "Write", "Bash(foundry ship:*)", "Bash(foundry approve:*)"} <= set(a[a.index("--disallowedTools") + 1:])
+    assert allowed[:2] == ["Bash(foundry:*)", "Read(./work/**)"]
+    assert set(allowed[2:]) == {f"mcp__higgsfield__{t}" for t in build.VIDEO_TOOLS} and "mcp__higgsfield" not in allowed
+    denied = set(a[a.index("--disallowedTools") + 1:])
+    assert {"Edit", "Write", "Read(./.env)", "Bash(foundry ship:*)", "Bash(foundry approve:*)"} <= denied
     assert "3 regeneration(s)" in out["prompt"] and p.lock["fix_cycles"] == 2  # dry run persists nothing
     assert build.build(ws, p, "interactive")["next"].startswith("run /foundry-build")
 

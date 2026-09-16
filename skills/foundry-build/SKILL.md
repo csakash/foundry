@@ -2,7 +2,7 @@
 name: foundry-build
 description: Build an approved Foundry piece to green — record face boxes and hands verdicts, generate the clip with the Higgsfield video MCP (seedance_2_5) from the approved first frame, and loop frames → clip → cut against machine QC within the retry budget. Never ships red. Use after the sheet is approved. In-session twin of `foundry build --mode bypass`.
 allowed-tools:
-  - Bash
+  - Bash(foundry:*)
   - Read
 ---
 

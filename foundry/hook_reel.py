@@ -18,7 +18,8 @@ UNIT_CREDITS = {"image_call": 1, "video_5s": 32.5}
 
 
 def scene(scene_id: str) -> dict[str, Any]:
-    s = read_json(REPO / "catalog/scenes" / f"{scene_id}.json")
+    from .util import NAME_RE, check_name
+    s = read_json(REPO / "catalog/scenes" / f"{check_name(scene_id, NAME_RE, 'scene id')}.json")
     if not s:
         raise FileNotFoundError(f"no scene catalog/scenes/{scene_id}.json")
     return s

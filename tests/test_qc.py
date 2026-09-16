@@ -64,6 +64,7 @@ def test_frame0_resizes_approved_to_clip_size(tmp):
 def test_drift_stable_vs_warming(tmp):
     frames = [portrait(tmp / f"f{i}.png", seed=i) for i in range(4)]
     assert drift.check(frames, max_lum=12)["pass"]
+    assert drift.check(frames, max_lum=12, face_box=(0.36, 0.36, 0.56, 0.54))["pass"]  # the head turns inside the doubled box
     frames.append(warm(frames[0], tmp / "f_warm.png"))
     r = drift.check(frames, max_lum=12, max_rb=12)
     assert not r["pass"] and r["measures"]["worst_frame"] == "f_warm.png"

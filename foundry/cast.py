@@ -63,7 +63,7 @@ def bootstrap(ws: Workspace, name: str, brief: str, n: int = 3, provider=None) -
     prompt = lint["rewritten"]
     (d / "brief.txt").write_text(brief.strip() + "\n")
     (d / "prompts/bootstrap.txt").write_text(prompt)
-    provider = provider or get_image_provider(ws.image)
+    provider = provider or get_image_provider(ws.image, str(ws.root / ".foundry"))
     st["calls"].append({"op": "generate", "n": n, "at": now(), "safety_hits": lint["measures"]["hits"]})
     _save(ws, name, st)
     outs = provider.generate(prompt, n=n, size="1024x1536")
@@ -104,7 +104,7 @@ def pick(ws: Workspace, name: str, candidate: str, face: Sequence[float] | None 
     rule = skin_rule(master_m)
     prompt = safety_lint.lint((REPO / "foundry/templates/cast_sheet.txt").read_text().format(skin_rule=rule))["rewritten"]
     (d / "prompts/sheet.txt").write_text(prompt)
-    provider = provider or get_image_provider(ws.image)
+    provider = provider or get_image_provider(ws.image, str(ws.root / ".foundry"))
     st["calls"].append({"op": "edit", "n": 1, "refs": ["master.png"], "at": now()})
     st.update(master_from=candidate, face_box=face)
     _save(ws, name, st)

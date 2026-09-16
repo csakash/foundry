@@ -30,6 +30,10 @@ foundry doctor
 `foundry ls` shows every piece's state, cycles and credits; `foundry reap` clears media from
 posted pieces. Or just say `/foundry <what you want>`.
 
+Headless builds need `providers.video.mcp_server` in `foundry.json` (the video MCP server's name as
+Claude Code lists it). The session gets `foundry`, reads under `work/`, and six named video tools,
+nothing else. Optionally pin `providers.video.transfer_hosts` to the provider's upload and CDN hosts.
+
 ## Why it exists
 
 Most AI video workflows collapse "what should this say?", "what should it look like?" and "render it" into one prompt. That is how you spend money on motion for an idea nobody vetted.

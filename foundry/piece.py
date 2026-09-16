@@ -12,11 +12,15 @@ spec.json: QC reads its limits from the lock and refuses if the spec changed.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import math
+import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
-from .util import (ACCOUNT_RE, SLUG_RE, Blocked, FoundryError, check_name, now, read_json, write_json)
+from .util import (ACCOUNT_RE, SLUG_RE, Blocked, FoundryError, check_name, file_lock, now, read_json, sha256_file,
+                   write_json)
 from .workspace import Workspace
 
 STATES = ["created", "specced", "sheet_pending", "approved", "building", "green", "blocked", "shipped"]
@@ -66,6 +70,25 @@ class Piece:
     def rel(self, *parts: str) -> Path:
         return self.path.joinpath(*parts)
 
+    @contextlib.contextmanager
+    def exclusive(self) -> Iterator[None]:
+        """One foundry command at a time per piece: parallel tool calls cannot race the invoice or the cycles.
+
+        Re-entrant within this object (flock would deadlock against a second descriptor in the same process)."""
+        if getattr(self, "_held", 0):
+            self._held += 1
+            try:
+                yield
+            finally:
+                self._held -= 1
+            return
+        with file_lock(self.path / ".lock"):
+            self._held = 1
+            try:
+                yield
+            finally:
+                self._held = 0
+
     # ------------------------------------------------------------ status
     @property
     def status(self) -> dict[str, Any]:
@@ -83,6 +106,10 @@ class Piece:
             raise FoundryError(f"{self.ref} is '{self.state}'; this step needs {' or '.join(states)}")
 
     def set_state(self, state: str, **fields: Any) -> dict[str, Any]:
+        with self.exclusive():
+            return self._set_state(state, **fields)
+
+    def _set_state(self, state: str, **fields: Any) -> dict[str, Any]:
         assert state in STATES, state
         st = self.status
         st["state"] = state
@@ -95,6 +122,10 @@ class Piece:
         return st
 
     def touch(self, what: str) -> int:
+        with self.exclusive():
+            return self._touch(what)
+
+    def _touch(self, what: str) -> int:
         """Count a human decision. Acceptance criterion 12 reads this counter."""
         st = self.status
         st["touches"] = int(st.get("touches", 0)) + 1
@@ -103,6 +134,10 @@ class Piece:
         return st["touches"]
 
     def bump_cycle(self, stage: str) -> int:
+        with self.exclusive():
+            return self._bump_cycle(stage)
+
+    def _bump_cycle(self, stage: str) -> int:
         st = self.status
         st["cycles"][stage] = int(st["cycles"].get(stage, 0)) + 1
         self.save_status(st)
@@ -130,22 +165,53 @@ class Piece:
     def spec_hash(self) -> str:
         return hashlib.sha256((self.path / "spec.json").read_bytes()).hexdigest()
 
+    def locked_inputs(self) -> dict[str, str]:
+        """Everything the build reads besides spec.json, hashed at approval: the creator's identity files,
+        the product clip, the account charter, the scene, and the prompt templates."""
+        from . import REPO
+        from .util import inside
+        spec = self.spec
+        paths = {}
+        pdir = self.ws.dir("personas") / spec["creator"]
+        for name in ("master.png", "sheet.png", "pack.json"):
+            paths[f"persona/{name}"] = pdir / name
+        for i, a in enumerate(spec["assets"]):
+            paths[f"asset/{i}"] = inside(self.ws.root, a["path"], "product clip")
+        charter = self.ws.dir("accounts") / self.status["account"] / "charter.json"
+        if charter.exists():
+            paths["charter"] = charter
+        for sh in spec["shots"]:
+            paths[f"scene/{sh['scene']}"] = REPO / "catalog/scenes" / f"{sh['scene']}.json"
+        for t in ("engine/prompts/frame/first-frame.txt", "engine/prompts/motion/seedance-beats.txt"):
+            paths[t] = REPO / t
+        if spec["audio"].get("path"):
+            paths["audio"] = inside(self.ws.root, spec["audio"]["path"], "audio track")
+        return {k: sha256_file(v) for k, v in paths.items()}
+
     def write_lock(self, fix_cycles: int) -> dict[str, Any]:
         spec = self.spec
-        lock = {"spec_sha256": self.spec_hash(), "qc_targets": spec["qc_targets"], "fix_cycles": int(fix_cycles),
-                "locked_at": now()}
+        lock = {"spec_sha256": self.spec_hash(), "inputs": self.locked_inputs(), "qc_targets": spec["qc_targets"],
+                "fix_cycles": int(fix_cycles), "max_duration_s": self.ws.defaults["max_duration_s"],
+                "min_video_reservation": min_video_reservation(spec), "locked_at": now()}
         write_json(self.path / LOCK, lock)
         return lock
 
     @property
     def lock(self) -> dict[str, Any]:
-        """The approved limits. Refuses when spec.json was edited after approval."""
+        """The approved limits. Blocks when spec.json or any locked input changed after approval."""
         lock = read_json(self.path / LOCK)
         if not lock:
             raise FoundryError(f"{self.ref} has no {LOCK}; approve the sheet first")
         if self.spec_hash() != lock["spec_sha256"]:
             raise self.block("spec.changed_after_approval",
                              "spec.json no longer matches the approved hash; QC limits cannot be trusted")
+        try:
+            current = self.locked_inputs()
+        except (FileNotFoundError, FoundryError) as e:
+            raise self.block("inputs.changed_after_approval", f"an approved input is missing: {e}")
+        changed = sorted(k for k in set(lock["inputs"]) | set(current) if lock["inputs"].get(k) != current.get(k))
+        if changed:
+            raise self.block("inputs.changed_after_approval", "changed since approval: " + ", ".join(changed))
         return lock
 
     def set_fix_cycles(self, n: int) -> None:
@@ -170,6 +236,10 @@ class Piece:
                          if e["unit"] == unit and e["state"] in COUNTED), 2)
 
     def reserve(self, unit: str, amount: float, note: str) -> str:
+        with self.exclusive():
+            return self._reserve(unit, amount, note)
+
+    def _reserve(self, unit: str, amount: float, note: str) -> str:
         """Write the spend BEFORE the call. After approval, refuses (BLOCKED budget.<unit>) past the ceiling.
 
         The ceiling covers spend since approval: sheet renders before approval are the price of deciding.
@@ -177,18 +247,25 @@ class Piece:
         if amount <= 0:
             raise FoundryError("reserve amount must be positive")
         inv = self.invoice
+        floor = (read_json(self.path / LOCK) or {}).get("min_video_reservation")
+        if unit == "video_credits" and floor and amount < floor:
+            raise FoundryError(f"a clip costs at least {floor:g} video credits for this spec; reserve the preflight cost")
         if inv.get("frozen") and unit in inv["ceilings"]:
             since = self.spent(unit) - float(inv.get("baseline", {}).get(unit, 0))
             if since + amount > inv["ceilings"][unit] + 1e-9:
                 raise self.block(f"budget.{unit}", f"{note} needs {amount} {unit}; {since:g} spent since approval "
                                                    f"of ceiling {inv['ceilings'][unit]:g}")
-        eid = f"e{len(inv['entries']) + 1:03d}"
+        eid = f"e{len(inv['entries']) + 1:03d}-{uuid.uuid4().hex[:6]}"
         inv["entries"].append({"id": eid, "unit": unit, "amount": amount, "note": note,
                                "state": "reserved", "at": now()})
         write_json(self.path / "invoice.json", inv)
         return eid
 
     def settle(self, eid: str, ok: bool, actual: float | None = None, ref: str | None = None) -> dict[str, Any]:
+        with self.exclusive():
+            return self._settle(eid, ok, actual, ref)
+
+    def _settle(self, eid: str, ok: bool, actual: float | None = None, ref: str | None = None) -> dict[str, Any]:
         """One-way: reserved -> settled | failed. Never lowers a recorded charge."""
         inv = self.invoice
         e = next((x for x in inv["entries"] if x["id"] == eid), None)
@@ -208,6 +285,10 @@ class Piece:
         return e
 
     def consume(self, unit: str, ref: str) -> dict[str, Any]:
+        with self.exclusive():
+            return self._consume(unit, ref)
+
+    def _consume(self, unit: str, ref: str) -> dict[str, Any]:
         """Tie a generated asset to the settled reservation that paid for it, once."""
         inv = self.invoice
         e = next((x for x in inv["entries"] if x["unit"] == unit and x.get("ref") == ref
@@ -218,3 +299,10 @@ class Piece:
         e["consumed"] = now()
         write_json(self.path / "invoice.json", inv)
         return e
+
+
+def min_video_reservation(spec: dict[str, Any]) -> float:
+    """The cheapest one clip can be: the per-5 s unit price times the shortest shot's 5 s blocks."""
+    unit = float(((spec.get("budget") or {}).get("unit_credits") or {}).get("video_5s", 0))
+    shots = [math.ceil(float(sh["duration_s"]) / 5) for sh in spec.get("shots", [])]
+    return round(unit * min(shots), 2) if unit and shots else 0.0

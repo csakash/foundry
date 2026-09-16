@@ -111,10 +111,22 @@ def loudnorm(src: Path, dst: Path, target: float, audio: Path | None = None) -> 
         m = json.loads(err[err.rindex("{"):err.rindex("}") + 1])
     except ValueError:
         raise RuntimeError(f"loudnorm measurement failed: {err.strip()[-300:]}")
+    if m["input_i"] in ("-inf", "inf") or float(m["input_i"]) < -60:
+        raise RuntimeError("the audio track is silent; nothing to normalise (choose audio.kind silent)")
     af = (f"{spec}:measured_I={m['input_i']}:measured_TP={m['input_tp']}:measured_LRA={m['input_lra']}"
           f":measured_thresh={m['input_thresh']}:offset={m['target_offset']}:linear=true")
     run(["ffmpeg", "-y", "-v", "error", "-i", str(base), "-c:v", "copy", "-af", af, "-c:a", "aac", "-ar", "48000",
          "-movflags", "+faststart", str(dst)])
+    # loudnorm silently drops to dynamic mode when the true-peak ceiling makes linear gain impossible,
+    # which undershoots; correct the remainder with plain gain behind a limiter.
+    from engine.qc.loudness import integrated
+    got = integrated(dst)
+    if got is not None and abs(got - target) > 1.0:
+        fixed = dst.with_name(dst.stem + "-gain.mp4")
+        run(["ffmpeg", "-y", "-v", "error", "-i", str(dst), "-c:v", "copy",
+             "-af", f"volume={target - got:.2f}dB,alimiter=limit=0.891:level=false", "-c:a", "aac", "-ar", "48000",
+             "-movflags", "+faststart", str(fixed)])
+        fixed.replace(dst)
     if audio:
         base.unlink(missing_ok=True)
     return dst

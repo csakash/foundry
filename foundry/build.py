@@ -19,7 +19,9 @@ from .piece import Piece
 from .util import AGENT_ENV, FoundryError, human_only
 from .workspace import Workspace
 
-PERMISSION_MODE = {"interactive": "default", "bypass": "default"}
+PERMISSION_MODE = {"interactive": "default", "bypass": "dontAsk"}  # dontAsk: anything not allowlisted is denied
+VIDEO_TOOLS = ["balance", "models_explore", "media_upload", "media_confirm", "generate_video", "jobs_wait"]
+BUILD_TIMEOUT_S = 3 * 3600
 MODES = ["interactive", "bypass", "autonomous"]
 SERVER_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 HUMAN_STEPS = ["init", "cast", "new", "set", "sheet", "approve", "build", "ship", "posted", "reap"]
@@ -68,8 +70,10 @@ def argv(ws: Workspace, piece: Piece, mode: str, cycles: int) -> list[str]:
                            "video MCP server's name to call its tools")
     if not SERVER_RE.match(server):
         raise FoundryError(f"providers.video.mcp_server {server!r} must match {SERVER_RE.pattern}")
-    allowed = ["Bash(foundry:*)", "Read", f"mcp__{server}"]
-    denied = ["Edit", "Write", "NotebookEdit"] + [f"Bash(foundry {s}:*)" for s in HUMAN_STEPS]
+    work = ws.config["dirs"]["work"]
+    allowed = ["Bash(foundry:*)", f"Read(./{work}/**)"] + [f"mcp__{server}__{t}" for t in VIDEO_TOOLS]
+    denied = (["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Read(./.env)", "Read(~/**)"]
+              + [f"Bash(foundry {s}:*)" for s in HUMAN_STEPS])
     return ["claude", "-p", prompt(ws, piece, cycles), "--permission-mode", PERMISSION_MODE[mode],
             "--allowedTools", *allowed, "--disallowedTools", *denied]
 
@@ -100,7 +104,23 @@ def build(ws: Workspace, piece: Piece, mode: str, cycles: int | None = None, dry
         return out
     if not shutil.which("claude"):
         raise FoundryError("claude CLI not on PATH")
+    pidfile = piece.rel(".build.pid")
+    if pidfile.exists():
+        try:
+            os.kill(int(pidfile.read_text().strip()), 0)
+            raise FoundryError(f"a build is already running for {piece.ref} (pid {pidfile.read_text().strip()})")
+        except (ProcessLookupError, ValueError):
+            pidfile.unlink(missing_ok=True)
     env = {**os.environ, AGENT_ENV: "1"}
-    out["exit_code"] = subprocess.run(args, cwd=ws.root, env=env).returncode
+    proc = subprocess.Popen(args, cwd=ws.root, env=env)
+    pidfile.write_text(str(proc.pid))
+    try:
+        out["exit_code"] = proc.wait(timeout=BUILD_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        out["exit_code"] = "timeout"
+    finally:
+        pidfile.unlink(missing_ok=True)
     out["state"] = piece.status["state"]
+    out["blocked_gate"] = piece.status.get("blocked_gate") if out["state"] == "blocked" else None
     return out

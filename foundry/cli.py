@@ -1,6 +1,7 @@
 """foundry: cast / spec / build / ship for a local short-form content factory.
 
-Exit codes: 0 ok or green · 1 QC red or BLOCKED · 2 refused (precondition not met).
+Exit codes: 0 ok or green · 1 QC red, BLOCKED, or a build that did not reach green · 2 refused
+(precondition not met) · 3 unexpected error.
 Every command prints JSON with --json; the build agent always uses --json.
 """
 from __future__ import annotations
@@ -169,6 +170,15 @@ def dispatch(a: argparse.Namespace) -> tuple[Any, int]:
         return ops.reap(ws, dry_run=a.dry_run), 0
 
     piece = Piece.open(ws, a.piece)
+    if a.cmd == "build":  # not under the piece lock: the session it spawns runs foundry commands on this piece
+        res = build_mod.build(ws, piece, a.mode or ws.defaults["mode"], a.fix_cycles, a.dry_run)
+        headless_run = "exit_code" in res
+        return res, (0 if res.get("state") == "green" else 1) if headless_run else 0
+    with piece.exclusive():
+        return _piece_command(a, ws, piece)
+
+
+def _piece_command(a: argparse.Namespace, ws, piece: Piece) -> tuple[Any, int]:
     if a.cmd == "resolve":
         return spec_mod.resolve(ws, piece), 0
     if a.cmd == "set":
@@ -177,9 +187,6 @@ def dispatch(a: argparse.Namespace) -> tuple[Any, int]:
         return sheet.render(ws, piece, n=a.n), 0
     if a.cmd == "approve":
         return sheet.approve(ws, piece, a.candidate), 0
-    if a.cmd == "build":
-        res = build_mod.build(ws, piece, a.mode or ws.defaults["mode"], a.fix_cycles, a.dry_run)
-        return res, 0 if res.get("exit_code", 0) == 0 else 1
     if a.cmd == "qc":
         rep = loop.run_qc(ws, piece, a.stage)
         return rep, 0 if rep["pass"] else 1
@@ -210,7 +217,7 @@ def dispatch(a: argparse.Namespace) -> tuple[Any, int]:
     if a.cmd == "ingest-clip":
         return loop.ingest_clip(ws, piece, Path(a.mp4), job=a.job, shot=a.shot), 0
     if a.cmd == "upload":
-        return loop.upload_approved(piece, a.url), 0
+        return loop.upload_approved(ws, piece, a.url), 0
     if a.cmd == "fetch":
         return loop.fetch_clip(ws, piece, a.url, job=a.job, shot=a.shot), 0
     if a.cmd == "cut":
@@ -266,5 +273,12 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"refused: {e}", file=sys.stderr)
         return e.code
+    except Exception as e:  # a crash is neither red QC (1) nor a refusal (2): exit 3, still parseable
+        out = {"status": "ERROR", "error": f"{type(e).__name__}: {e}"}
+        if a.json:
+            print(json.dumps(out, indent=2))
+        else:
+            print(f"error: {out['error']}", file=sys.stderr)
+        return 3
     _print(res, a.json)
     return code

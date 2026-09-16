@@ -46,7 +46,7 @@ def doctor(ws: Workspace | None, offline: bool = False) -> dict[str, Any]:
             has_key = bool(os.environ.get("OPENAI_API_KEY"))
             row("OPENAI_API_KEY", "ok" if has_key else "fail", "set" if has_key else "add it to the workspace .env")
             if has_key and not offline:
-                ok, detail = get_image_provider(img).check_model()
+                ok, detail = get_image_provider(img, str(ws.root / ".foundry")).check_model()
                 row(f"image model {img['model']}", "ok" if ok else "fail", detail)
         else:
             row("image provider", "warn", f"kind={img['kind']} (offline fake, spends nothing)")

@@ -223,14 +223,13 @@ def test_regen_frame_budget_and_invalidation(ws: Path, tmp_path: Path):
     cast_nova(root)
     p = approved_piece(root, "frames")
     ref = p.ref
-    sh(root, "region", ref, "frames/approved.png", "--face", "0.36,0.28,0.64,0.52")
     assert sh(root, "regen-frame", ref)[0] == 2  # no QC yet
-    sh(root, "verdict", ref, "--stage", "frames", "--pass")
-    assert sh(root, "qc", ref, "--stage", "frames")[0] == 0
-    assert sh(root, "regen-frame", ref)[0] == 2  # green: nothing to regenerate
     for i in range(2):
-        sh(root, "region", ref, "frames/approved.png", "--face", "0.36,0.28,0.64,0.52")
-        sh(root, "verdict", ref, "--stage", "frames", "--fail", "--note", "six fingers")
+        assert sh(root, "region", ref, "frames/approved.png", "--face", "0.36,0.28,0.64,0.52")[0] == 0
+        code, res = sh(root, "region", ref, "frames/approved.png", "--face", "0.30,0.20,0.70,0.60")
+        assert code == 2 and "already recorded" in res["error"]  # one look per image
+        assert sh(root, "verdict", ref, "--stage", "frames", "--fail", "--note", "six fingers")[0] == 0
+        assert sh(root, "verdict", ref, "--stage", "frames", "--pass")[0] == 2
         code, rep = sh(root, "qc", ref, "--stage", "frames")
         assert code == 1 and rep["failed"] == ["hands"]
         code, res = sh(root, "regen-frame", ref)
@@ -244,6 +243,21 @@ def test_regen_frame_budget_and_invalidation(ws: Path, tmp_path: Path):
     assert code == 1 and rep["gate"] == "frames.hands"
     inv = read_json(root / "work/@test/frames/invoice.json")
     assert sum(1 for e in inv["entries"] if e["note"] == "frames regeneration" and e["state"] == "settled") == 2
+
+
+def test_regen_frame_moves_the_old_clip_aside(ws: Path, tmp_path: Path):
+    root = ws
+    cast_nova(root)
+    p = approved_piece(root, "reframe")
+    ref = p.ref
+    pass_frames(root, ref)
+    code, res = paid_clip(root, ref, root / "work/@test/reframe/frames/approved.png", tmp_path / "a.mp4", "j1")
+    assert code == 0
+    sh(root, "verdict", ref, "--stage", "clip", "--fail", "--note", "melting hand")
+    assert sh(root, "qc", ref, "--stage", "clip")[0] == 1
+    # frames were fine; the clip failed. A new clip for the same frame is a clip regeneration:
+    code, res = paid_clip(root, ref, root / "work/@test/reframe/frames/approved.png", tmp_path / "b.mp4", "j2")
+    assert code == 0 and res["cycle"] == 1
 
 
 def test_frames_skin_requires_a_recorded_face_box(ws: Path):
@@ -332,7 +346,7 @@ def test_cut_normalises_clip_audio_and_checks_asset_length(ws: Path, tmp_path: P
     video(root / "assets/product/short.mp4", seconds=16, size="1920x1080", audio="tone")  # landscape, shorter than 20 s
     sh(root, "new", "@test", "short")
     code, res = sh(root, "set", "@test/short", HOOK, "assets.0.path=assets/product/short.mp4", "audio.kind=clip")
-    assert not res["complete"] and "trims to 20" in res["problems"][0]
+    assert not res["complete"] and any("trims to 20" in x for x in res["problems"])
     code, res = sh(root, "set", "@test/short", "assets.0.trim_s=[0, 15]")
     assert res["complete"], res
     sh(root, "sheet", "@test/short")
@@ -349,9 +363,68 @@ def test_budget_ceiling_blocks(ws: Path):
     root = ws
     cast_nova(root)
     p = approved_piece(root, "pricey")
-    assert sh(root, "reserve", p.ref, "--unit", "video_credits", "--amount", "97.5")[0] == 0
-    code, res = sh(root, "reserve", p.ref, "--unit", "video_credits", "--amount", "0.5")
+    assert sh(root, "reserve", p.ref, "--unit", "video_credits", "--amount", "0.5")[0] == 2  # below one clip's price
+    for _ in range(3):
+        assert sh(root, "reserve", p.ref, "--unit", "video_credits", "--amount", "32.5")[0] == 0
+    code, res = sh(root, "reserve", p.ref, "--unit", "video_credits", "--amount", "32.5")
     assert code == 1 and res["gate"] == "budget.video_credits"
+
+
+def test_parallel_reserves_cannot_overspend(ws: Path):
+    """Adversarial repro: 12 concurrent reserves against a 97.5 ceiling used to book 162.5 with duplicate ids."""
+    import sys
+    from concurrent.futures import ThreadPoolExecutor
+    root = ws
+    cast_nova(root)
+    p = approved_piece(root, "race")
+    cmd = [sys.executable, "-m", "foundry", "-C", str(root), "reserve", p.ref, "--unit", "video_credits",
+           "--amount", "32.5", "--json"]
+    with ThreadPoolExecutor(12) as pool:
+        codes = list(pool.map(lambda _: subprocess.run(cmd, capture_output=True, text=True).returncode, range(12)))
+    inv = read_json(root / "work/@test/race/invoice.json")
+    booked = [e for e in inv["entries"] if e["unit"] == "video_credits"]
+    assert codes.count(0) == 3 and len(booked) == 3
+    assert len({e["id"] for e in booked}) == 3
+    assert sum(e["amount"] for e in booked) <= inv["ceilings"]["video_credits"]
+
+
+def test_swapped_inputs_block_after_approval(ws: Path):
+    root = ws
+    cast_nova(root)
+    p = approved_piece(root, "swap")
+    pass_frames(root, p.ref)
+    video(root / "assets/product/walkthrough.mp4", seconds=22, size="1080x1920", color="0xff0000", audio="tone")
+    code, rep = sh(root, "qc", p.ref, "--stage", "frames")
+    assert code == 1 and rep["gate"] == "inputs.changed_after_approval" and "asset/0" in rep["evidence"]
+
+
+def test_approve_refuses_a_spec_edited_after_render(ws: Path):
+    root = ws
+    cast_nova(root)
+    sh(root, "new", "@test", "edited")
+    sh(root, "set", "@test/edited", HOOK, ASSET)
+    assert sh(root, "sheet", "@test/edited")[0] == 0
+    assert sh(root, "resolve", "@test/edited")[0] == 2
+    spec = read_json(root / "work/@test/edited/spec.json")
+    spec["qc_targets"]["frame0_max_diff"] = 999
+    write_json(root / "work/@test/edited/spec.json", spec)
+    code, res = sh(root, "approve", "@test/edited", "--candidate", "c1")
+    assert code == 2 and "render the sheet again" in res["error"]
+
+
+def test_exit_codes_for_crashes_and_unfinished_builds(ws: Path, monkeypatch):
+    from foundry import build as build_mod
+    root = ws
+    cast_nova(root)
+    p = approved_piece(root, "exits")
+    monkeypatch.setattr(build_mod, "build", lambda *a, **k: {"piece": p.ref, "exit_code": 0, "state": "building"})
+    assert sh(root, "build", p.ref, "--mode", "bypass")[0] == 1  # the agent stopped before green
+    monkeypatch.setattr(build_mod, "build", lambda *a, **k: {"piece": p.ref, "exit_code": 0, "state": "green"})
+    assert sh(root, "build", p.ref, "--mode", "bypass")[0] == 0
+    from foundry import loop
+    monkeypatch.setattr(loop, "run_qc", lambda *a, **k: 1 / 0)
+    code, res = sh(root, "qc", p.ref, "--stage", "frames")
+    assert code == 3 and res["status"] == "ERROR" and "ZeroDivisionError" in res["error"]
 
 
 def test_cast_fails_closed_on_sheet_drift(ws: Path):

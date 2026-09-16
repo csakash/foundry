@@ -20,13 +20,19 @@ RECIPE_PARAMETERS = [
 
 def ship(ws: Workspace, piece: Piece, recipe_name: str | None = None) -> dict[str, Any]:
     human_only("ship")
+    from .util import SLUG_RE, check_name
     piece.require("green")
+    spec = piece.spec
+    name = check_name(recipe_name or spec["slug"], SLUG_RE, "recipe name")
+    existing = read_json(ws.dir("pipelines") / f"{name}.json")
+    if existing and existing.get("made_from") != piece.ref:
+        raise FoundryError(f"pipelines/{name}.json was made from {existing.get('made_from')}; pass --recipe <new name>")
     for s in ("frames", "clip"):
         piece.require_pass(s)
     report = run_qc(ws, piece, "cut")
     if not report["pass"]:
+        piece.set_state("building")
         raise FoundryError("cut QC went red on the ship re-check: " + report["guidance"])
-    spec = piece.spec
     final = piece.rel("cut", "final.mp4")
     channel = ws.config["publish"]["channels"].get(spec["account"])
     publish = {"account": spec["account"], "kind": ws.config["publish"]["kind"], "channel_id": channel,
@@ -36,8 +42,6 @@ def ship(ws: Workspace, piece: Piece, recipe_name: str | None = None) -> dict[st
                                 f"Then record it: foundry posted {piece.ref} --url <post url>"]}
     write_json(piece.rel("publish.json"), publish)
 
-    from .util import SLUG_RE, check_name
-    name = check_name(recipe_name or spec["slug"], SLUG_RE, "recipe name")
     inv = piece.invoice
     recipe = {
         "id": name, "name": name, "made_from": piece.ref, "saved_at": now(), "post_type": "video", "format": spec["format"],

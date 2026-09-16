@@ -11,11 +11,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-from engine.qc import duration as qc_duration, text_lint
+from engine.qc import caption_band, duration as qc_duration, text_lint
 
-from . import REPO, cast, hook_reel
+from . import REPO, caption, cast, hook_reel
 from .piece import Piece
-from .util import FoundryError, get_path, human_only, inside, now, parse_value, read_json, set_path
+from .util import (NAME_RE, SHOT_RE, FoundryError, check_name, get_path, human_only, inside, now, parse_value,
+                   read_json, set_path)
 from .workspace import Workspace
 
 MAX_QUESTIONS = 5
@@ -57,7 +58,9 @@ def _last_shipped(ws: Workspace, account: str) -> dict[str, Any] | None:
 
 
 def resolve(ws: Workspace, piece: Piece) -> dict[str, Any]:
-    if piece.state not in ("created", "specced", "sheet_pending"):
+    if piece.state == "sheet_pending":
+        raise FoundryError(f"{piece.ref} has a rendered sheet; change it with foundry set (which re-opens the spec)")
+    if piece.state not in ("created", "specced"):
         raise FoundryError(f"{piece.ref} is '{piece.state}'; the spec is frozen after approval")
     spec = piece.spec
     rf = spec.setdefault("resolved_from", {})
@@ -144,11 +147,32 @@ def resolve(ws: Workspace, piece: Piece) -> dict[str, Any]:
                                 f"set assets.0.trim_s to fit")
             if get_path(spec, "audio.kind") == "clip" and not info["has_audio"]:
                 problems.append(f"audio is 'clip' but {asset} has no audio track")
+    for sh in spec["shots"]:
+        try:
+            check_name(sh["id"], SHOT_RE, "shot id")
+            check_name(sh["scene"], NAME_RE, "scene id")
+            hook_reel.scene(sh["scene"])
+        except (FoundryError, FileNotFoundError) as e:
+            problems.append(str(e))
     if get_path(spec, "hook.line"):
-        charter = read_json(ws.dir("accounts") / spec["account"] / "charter.json")
+        # the cut gates on these, so they are problems now, before a credit is spent
+        charter = read_json(ws.dir("accounts") / piece.status["account"] / "charter.json")
         lint = text_lint.lint(spec["hook"]["line"], charter)
-        warnings += lint["measures"]["failed"]
+        problems += [f"hook line: {f}" for f in lint["measures"]["failed"]]
+        cap = caption.render({**spec["captions"], "text": spec["hook"]["line"]}, piece.rel(".caption-check.png"))
+        piece.rel(".caption-check.png").unlink(missing_ok=True)
+        piece.rel(".caption-check.json").unlink(missing_ok=True)
+        cs = spec["qc_targets"].get("caption_safe", {})
+        band = caption_band.check(cap["box"], None, cs.get("top_pct", 11), cs.get("bottom_pct", 71))
+        problems += [f"caption: {f}" for f in band["measures"]["failed"]]
+        if cap["font_substituted"]:
+            warnings.append(f"caption font {cap['font_wanted']} is not installed; rendering with {cap['font_used']}")
     spec["structure"] = hook_reel.structure(spec)
+    lo, hi = spec["qc_targets"].get("cut_duration_s", [0, ws.defaults["max_duration_s"]])
+    total = max(seg["t"][1] for seg in spec["structure"])
+    if not lo <= total <= min(hi, ws.defaults["max_duration_s"]):
+        problems.append(f"the cut would run {total:g}s, outside {lo}-{min(hi, ws.defaults['max_duration_s'])}s; "
+                        f"adjust assets.0.trim_s")
     n = int(ws.defaults.get("sheet_candidates", 3))
     planned = hook_reel.plan(spec, n)
     spec["budget"] = {"unit_credits": hook_reel.UNIT_CREDITS, "planned": planned,
@@ -177,7 +201,7 @@ def set_values(ws: Workspace, piece: Piece, pairs: list[str], touch: bool = Fals
         spec.setdefault("resolved_from", {})[k.split(".")[0]] = "user"
     piece.save_spec(spec)
     if piece.state in ("specced", "sheet_pending"):
-        piece.set_state("created")  # any edit re-opens resolution and invalidates a rendered sheet
+        piece.set_state("created", sheet_spec_sha256=None)  # any edit re-opens resolution and voids a rendered sheet
     if touch:
         piece.touch("spec answers")
     return resolve(ws, piece)

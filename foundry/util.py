@@ -1,6 +1,8 @@
 """Small shared helpers: errors with exit codes, JSON files, .env, time."""
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import json
 import os
 import re
@@ -57,9 +59,11 @@ def load_dotenv(path: str | Path) -> list[str]:
         m = re.match(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$", line)
         if not m or line.lstrip().startswith("#"):
             continue
-        key, val = m.group(1), m.group(2)
-        if len(val) >= 2 and val[0] == val[-1] and val[0] in "'\"":
-            val = val[1:-1]
+        key, val = m.group(1), m.group(2).strip()
+        if len(val) >= 2 and val[0] in "'\"" and val[0] in val[1:]:
+            val = val[1:val.index(val[0], 1)]
+        else:
+            val = re.split(r"\s+#", val, maxsplit=1)[0].strip()
         if key not in os.environ:
             os.environ[key] = val
             loaded.append(key)
@@ -145,3 +149,25 @@ def human_only(step: str) -> None:
     """Steps that are the human's decision. The build agent runs with FOUNDRY_AGENT=1 and is refused."""
     if os.environ.get(AGENT_ENV):
         raise FoundryError(f"`foundry {step}` is a human step; the build agent may not run it")
+
+
+@contextlib.contextmanager
+def file_lock(path: str | Path):
+    """Exclusive advisory lock. Every read-modify-write of piece state runs under one."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "a+") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
+def sha256_file(path: str | Path, chunk: int = 1 << 20) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while b := f.read(chunk):
+            h.update(b)
+    return h.hexdigest()

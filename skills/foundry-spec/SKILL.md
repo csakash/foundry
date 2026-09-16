@@ -19,8 +19,9 @@ from the recipe, the creator pack, the format defaults and the account's last sh
    offer 2-3 lines you wrote in the shape of a mechanism from `catalog/hooks/mechanisms.json`
    that suits the scene's faces, plus "my own words". Then write all answers at once:
    `foundry set <piece> hook.line="..." assets.0.path=... hook.mechanism=<m> --touch --json`
-   (`--touch` exactly once: it is the human's answer round). If `warnings` lists charter or
-   slop problems with the line, say so in one sentence; the human's line stands.
+   (`--touch` exactly once: it is the human's answer round). `problems` that name the hook line
+   or caption (charter never-list, slop words, too long for the band) must be fixed before the
+   sheet: the cut gates on them. Offer one rewrite and let the human choose.
 4. `foundry sheet <piece> --json`. On `BLOCKED sheet.safety_refused`, name the phrase and
    stop. Report `font_substituted` if true: line breaks can move.
 5. Show `sheet/sheet.png` (and point to `sheet/index.html`). Ask one question: approve which
