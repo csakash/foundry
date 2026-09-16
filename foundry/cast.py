@@ -4,9 +4,18 @@
     foundry cast nova --pick c2 [--face ..]  -> master.png, sheet.png, measure.json  (touch 1)
                                                 fails closed: BLOCKED sheet_drift, no pack
     foundry cast nova --approve              -> pack.json                            (touch 2)
+    foundry cast nova --remeasure [--face ..]-> measure.json again on the same images   (no image calls)
 
 No creator can be used in a spec without pack.json, and pack.json only exists when the
 sheet's measured skin matched the master's.
+
+How the sheet is measured (v2, after Michelle's false sheet_drift on 2026-09-16):
+the master's face is FOUND in each top-row panel (engine.qc.facefind), and skin is read
+from the centre of the match, exactly as it is read from the centre of the master's face
+box. Panels where the face is not found confidently (profiles, odd framing) are left out.
+Hair is never measured as skin, and no assumption is made about where a sheet puts faces.
+If fewer than two panels can be matched the result is `sheet_unmeasurable`, not drift: a
+human looks at the sheet and may approve it with --visual-check.
 """
 from __future__ import annotations
 
@@ -15,7 +24,12 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from engine.providers import get_image_provider
-from engine.qc import safety_lint, skin
+import statistics
+
+import numpy as np
+from PIL import Image
+
+from engine.qc import facefind, safety_lint, skin
 
 from . import REPO
 from .imaging import contact, save_png
@@ -75,14 +89,94 @@ def bootstrap(ws: Workspace, name: str, brief: str, n: int = 3, provider=None) -
     return st
 
 
-def measure_sheet(sheet_path: Path) -> dict[str, Any]:
-    a = skin.crop(skin.load_rgb(sheet_path), SHEET_TOP_ROW)
-    w = a.shape[1]
-    panels = [skin.measure_array(a[:, int(i * w / SHEET_PANELS):int((i + 1) * w / SHEET_PANELS)])
-              for i in range(SHEET_PANELS)]
-    lums = [p["lum"] for p in panels if p]
-    return {"row": skin.measure_array(a), "panels": panels, "measured_panels": len(lums),
-            "panel_spread": round(max(lums) - min(lums), 1) if lums else None}
+MIN_MATCHED_PANELS = 2
+METHOD = "engine.qc.skin face-centre + facefind v2"
+
+
+def measure_sheet(sheet_path: Path, master_path: Path, face: Sequence[float]) -> dict[str, Any]:
+    """Locate the master's face in each top-row panel and read skin from the centre of each confident match."""
+    sheet = Image.open(sheet_path).convert("RGB")
+    master = Image.open(master_path).convert("RGB")
+    W, H = sheet.size
+    y0, y1 = int(SHEET_TOP_ROW[1] * H), int(SHEET_TOP_ROW[3] * H)
+    panels = []
+    for i in range(SHEET_PANELS):
+        x0, x1 = int(i * W / SHEET_PANELS), int((i + 1) * W / SHEET_PANELS)
+        panel = sheet.crop((x0, y0, x1, y1))
+        match = facefind.locate(panel, master, face)
+        m = None
+        if match["confident"]:
+            m = skin.measure_array(skin.crop(np.asarray(panel, np.float32), skin.skin_box(match["box"])))
+        panels.append({"panel": i, "match": match, "skin": m})
+    used = [p["skin"] for p in panels if p["skin"]]
+    row = None
+    if used:
+        row = {k: round(statistics.median(u[k] for u in used), 1) for k in ("lum", "r_minus_b", "sat_pct")}
+    lums = [u["lum"] for u in used]
+    return {"panels": panels, "matched_panels": [p["panel"] for p in panels if p["skin"]],
+            "row": row, "panel_spread": round(max(lums) - min(lums), 1) if len(lums) > 1 else 0.0}
+
+
+def _gate(ws: Workspace, name: str, st: dict[str, Any], face: Sequence[float]) -> dict[str, Any]:
+    """Measure master.png against sheet.png as they stand and set the cast state. No image calls."""
+    d = pdir(ws, name)
+    master_m = skin.measure_face(d / "master.png", face)
+    if master_m is None:
+        raise FoundryError(f"no measurable skin in the centre of the face box {list(face)}; pass --face x0,y0,x1,y1 "
+                           f"(forehead to chin, ear to ear, as fractions of the master)")
+    sheet_m = measure_sheet(d / "sheet.png", d / "master.png", face)
+    cfg = ws.config["cast"]
+    fails, gate = [], "sheet_drift"
+    if len(sheet_m["matched_panels"]) < MIN_MATCHED_PANELS:
+        gate = "sheet_unmeasurable"
+        fails.append(f"the master's face was found confidently in only {len(sheet_m['matched_panels'])} of "
+                     f"{SHEET_PANELS} top-row panels, so the sheet cannot be compared by numbers")
+    else:
+        row = sheet_m["row"]
+        delta = round(row["lum"] - master_m["lum"], 1)
+        if abs(delta) > cfg["max_sheet_lum_delta"]:
+            fails.append(f"sheet skin brightness {row['lum']} vs master {master_m['lum']} "
+                         f"(delta {delta:+}, max {cfg['max_sheet_lum_delta']})")
+        drb = round(row["r_minus_b"] - master_m["r_minus_b"], 1)
+        if abs(drb) > SKIN_TOL["r_minus_b"]:
+            fails.append(f"sheet skin warmth R-B {row['r_minus_b']} vs master {master_m['r_minus_b']} "
+                         f"(delta {drb:+}, max {SKIN_TOL['r_minus_b']})")
+        if sheet_m["panel_spread"] > cfg["max_panel_spread"]:
+            fails.append(f"matched panels disagree by {sheet_m['panel_spread']} > {cfg['max_panel_spread']}")
+    write_json(d / "measure.json", {"method": METHOD, "master": master_m, "face_box": list(face),
+                                    "skin_box": skin.skin_box(face), "sheet": sheet_m, "failed": fails,
+                                    "gate": gate if fails else None, "at": now()})
+    if fails:
+        (d / "pack.json").unlink(missing_ok=True)
+        st.update(state="blocked", blocked_gate=gate)
+        _save(ws, name, st)
+        if gate == "sheet_unmeasurable":
+            hint = (f" Look at personas/{name}/sheet.png. If it is the same person with the same skin, approve it with "
+                    f"`foundry cast {name} --approve --visual-check \"what you checked\"`; otherwise re-run "
+                    f"`foundry cast {name} --pick {st.get('master_from')}`.")
+        else:
+            hint = (f" Check personas/{name}/measure.json. Re-run `foundry cast {name} --pick {st.get('master_from')}` "
+                    f"to regenerate the sheet.")
+        raise Blocked(gate, "; ".join(fails) + "." + hint)
+    st.update(state="sheet_measured", blocked_gate=None)
+    _save(ws, name, st)
+    return st
+
+
+def remeasure(ws: Workspace, name: str, face: Sequence[float] | None = None) -> dict[str, Any]:
+    """Run the sheet gate again on the existing master.png and sheet.png: no image calls, no new sheet."""
+    human_only("cast --remeasure")
+    st = state(ws, name)
+    if st["state"] not in ("blocked", "sheet_measured", "locked"):
+        raise FoundryError(f"personas/{name} is '{st['state']}'; nothing to re-measure")
+    d = pdir(ws, name)
+    if not (d / "master.png").exists() or not (d / "sheet.png").exists():
+        raise FoundryError(f"personas/{name} has no master.png and sheet.png; run --pick first")
+    face = list(face or st.get("face_box") or DEFAULT_FACE)
+    st["face_box"] = face
+    if st["state"] == "locked":  # new numbers must be approved again before specs use them
+        (d / "pack.json").unlink(missing_ok=True)
+    return _gate(ws, name, st, face)
 
 
 def pick(ws: Workspace, name: str, candidate: str, face: Sequence[float] | None = None, provider=None) -> dict[str, Any]:
@@ -98,9 +192,9 @@ def pick(ws: Workspace, name: str, candidate: str, face: Sequence[float] | None 
     st["touches"] = st.get("touches", 0) + (0 if st["state"] == "blocked" and st.get("master_from") == candidate else 1)
     shutil.copyfile(src, d / "master.png")
     face = list(face or DEFAULT_FACE)
-    master_m = skin.measure(d / "master.png", face)
+    master_m = skin.measure_face(d / "master.png", face)
     if master_m is None:
-        raise FoundryError(f"no measurable skin inside the face box {face}; pass --face x0,y0,x1,y1")
+        raise FoundryError(f"no measurable skin in the centre of the face box {face}; pass --face x0,y0,x1,y1")
     rule = skin_rule(master_m)
     prompt = safety_lint.lint((REPO / "foundry/templates/cast_sheet.txt").read_text().format(skin_rule=rule))["rewritten"]
     (d / "prompts/sheet.txt").write_text(prompt)
@@ -110,42 +204,34 @@ def pick(ws: Workspace, name: str, candidate: str, face: Sequence[float] | None 
     _save(ws, name, st)
     save_png(provider.edit(prompt, [d / "master.png"], n=1, size="1536x1024")[0], d / "sheet.png")
 
-    sheet_m = measure_sheet(d / "sheet.png")
-    cfg = ws.config["cast"]
-    fails = []
-    if sheet_m["row"] is None or sheet_m["measured_panels"] < 4:
-        fails.append(f"only {sheet_m['measured_panels']} of {SHEET_PANELS} top-row panels have measurable skin")
-    else:
-        delta = round(sheet_m["row"]["lum"] - master_m["lum"], 1)
-        if abs(delta) > cfg["max_sheet_lum_delta"]:
-            fails.append(f"sheet skin lum {sheet_m['row']['lum']} vs master {master_m['lum']} (delta {delta}, max {cfg['max_sheet_lum_delta']})")
-        if sheet_m["panel_spread"] > cfg["max_panel_spread"]:
-            fails.append(f"panel spread {sheet_m['panel_spread']} > {cfg['max_panel_spread']}")
-    write_json(d / "measure.json", {"method": "engine.qc.skin face-box v1", "master": master_m, "face_box": face,
-                                    "sheet": sheet_m, "failed": fails, "at": now()})
-    if fails:
-        (d / "pack.json").unlink(missing_ok=True)
-        st.update(state="blocked", blocked_gate="sheet_drift")
-        _save(ws, name, st)
-        raise Blocked("sheet_drift", "; ".join(fails) + f". Re-run `foundry cast {name} --pick {candidate}` to regenerate the sheet.")
-    st.update(state="sheet_measured", blocked_gate=None)
-    _save(ws, name, st)
-    return st
+    return _gate(ws, name, st, face)
 
 
-def approve(ws: Workspace, name: str, story: str | None = None, wardrobe: str | None = None) -> dict[str, Any]:
+def approve(ws: Workspace, name: str, story: str | None = None, wardrobe: str | None = None,
+            visual_check: str | None = None) -> dict[str, Any]:
     human_only("cast --approve")
     st = state(ws, name)
-    if st["state"] != "sheet_measured":
-        raise FoundryError(f"personas/{name} is '{st['state']}'; the sheet must be measured green before approval")
     d = pdir(ws, name)
     m = read_json(d / "measure.json")
+    override = None
+    if st["state"] == "blocked" and st.get("blocked_gate") == "sheet_unmeasurable" and m and m.get("gate") == "sheet_unmeasurable":
+        if not (visual_check or "").strip():
+            raise FoundryError(f"the sheet could not be measured; look at personas/{name}/sheet.png and approve with "
+                               f"--visual-check \"what you checked\"")
+        override = {"gate": "sheet_unmeasurable", "note": visual_check.strip(), "at": now()}
+    elif visual_check:
+        raise FoundryError("--visual-check only applies to a sheet that could not be measured; a measured drift "
+                           "cannot be approved by eye")
+    elif st["state"] != "sheet_measured":
+        raise FoundryError(f"personas/{name} is '{st['state']}'; the sheet must be measured green before approval")
     st["touches"] = st.get("touches", 0) + 1
     pack = {
         "name": name, "version": 1, "locked_at": now(),
         "files": {"master": "master.png", "sheet": "sheet.png", "prompts": "prompts/"},
         "look": st.get("brief", ""),
         "face_box": m["face_box"],
+        "skin_box": m.get("skin_box"),
+        "sheet_check": override or {"gate": "measured", "matched_panels": m["sheet"].get("matched_panels")},
         "skin_rule": skin_rule(m["master"]),
         "camera_rule": CAMERA_RULE,
         "wardrobe_default": wardrobe or "opaque everyday cotton top in a solid colour",

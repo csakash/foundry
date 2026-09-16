@@ -7,6 +7,12 @@ whoever can see the frame (the build agent, or the cast skill) in qc/regions.jso
 Without a box, `measure` falls back to the whole frame, which is only valid for
 RELATIVE checks (drift against frame 1) and is labelled as such.
 
+Only the CENTRE of a face box is read (SKIN_BOX_SCALE of its width and height). A box
+drawn forehead to chin, ear to ear still holds hair at its edges, and dark hair passes
+the colour mask: Michelle's whole box read lum 122 against 141 for its centre
+(2026-09-16). Everyone records the whole face; measurement narrows it, the same way,
+on the master, the sheet and every frame.
+
 Inside the region, pixels count as skin-candidate when luminance is 18..190 (drops
 eye whites, highlights on jewellery, and crushed hair shadow), saturation <= 0.60,
 saturation >= `smin`, and R >= B. `smin` 0.07 removes neutral grey studio backdrops
@@ -27,6 +33,14 @@ from PIL import Image
 from . import result
 
 Box = Sequence[float]  # x0, y0, x1, y1 as fractions of width/height
+SKIN_BOX_SCALE = 0.6
+
+
+def skin_box(face: Box, k: float = SKIN_BOX_SCALE) -> list[float]:
+    """The central part of a face box, where there is skin and no hair."""
+    cx, cy = (face[0] + face[2]) / 2, (face[1] + face[3]) / 2
+    hw, hh = (face[2] - face[0]) * k / 2, (face[3] - face[1]) * k / 2
+    return [round(v, 4) for v in (cx - hw, cy - hh, cx + hw, cy + hh)]
 
 
 def load_rgb(path: str | Path) -> np.ndarray:
@@ -63,6 +77,11 @@ def measure(path: str | Path, box: Box | None = None, smin: float = 0.07) -> dic
     return measure_array(crop(load_rgb(path), box), smin=smin)
 
 
+def measure_face(path: str | Path, face: Box) -> dict[str, float] | None:
+    """Skin numbers from the centre of a whole-face box."""
+    return measure(path, skin_box(face))
+
+
 def check(path: str | Path, targets: dict[str, Any], box: Box | None,
           region_source: str = "regions.json") -> dict[str, Any]:
     """Absolute check against a creator pack's measured skin numbers.
@@ -72,7 +91,7 @@ def check(path: str | Path, targets: dict[str, Any], box: Box | None,
     if not box:
         return result(False, {"region_source": "none"},
                       "Record the face box for this frame (foundry region) before the skin check can run.")
-    m = measure(path, box)
+    m = measure_face(path, box)
     if m is None:
         return result(False, {"region_source": region_source, "box": list(box)},
                       "No skin pixels inside the face box: the face is covered, out of frame, or the box is wrong.")

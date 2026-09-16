@@ -45,10 +45,14 @@ def parser() -> argparse.ArgumentParser:
     g.add_argument("--brief", help="who they are and how they look")
     g.add_argument("--pick", metavar="cN", help="choose the master candidate (human touch 1)")
     g.add_argument("--approve", action="store_true", help="lock the pack after a green sheet (human touch 2)")
+    g.add_argument("--remeasure", action="store_true",
+                   help="check the existing master and sheet again (no image calls)")
     c.add_argument("--n", type=int, default=3)
     c.add_argument("--face", type=_floats, help="face box on the master, x0,y0,x1,y1 fractions")
     c.add_argument("--story", help="one-paragraph story for the pack")
     c.add_argument("--wardrobe", help="default wardrobe line")
+    c.add_argument("--visual-check", metavar="NOTE",
+                   help="with --approve: you looked at a sheet the numbers could not measure and it matches")
 
     n = sub.add_parser("new", help="create a piece: work/<@account>/<slug>")
     n.add_argument("account")
@@ -160,7 +164,9 @@ def dispatch(a: argparse.Namespace) -> tuple[Any, int]:
             return cast.bootstrap(ws, a.name, a.brief, n=a.n), 0
         if a.pick:
             return cast.pick(ws, a.name, a.pick, face=a.face), 0
-        return cast.approve(ws, a.name, story=a.story, wardrobe=a.wardrobe), 0
+        if a.remeasure:
+            return cast.remeasure(ws, a.name, face=a.face), 0
+        return cast.approve(ws, a.name, story=a.story, wardrobe=a.wardrobe, visual_check=a.visual_check), 0
     if a.cmd == "new":
         p = spec_mod.new(ws, a.account, a.slug, recipe=a.recipe)
         return spec_mod.resolve(ws, p), 0

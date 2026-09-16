@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from engine import formats
+from engine.qc import skin
 from engine.providers.fake_images import FakeImages
 from foundry import build, caption, cast, spec as spec_mod, util, workspace
 from foundry.piece import Piece
@@ -423,3 +424,123 @@ def test_hook_reel_registered_and_ready():
     f = formats.BY_KEY["hook_reel"]
     row = next(r for r in formats.readiness() if r["key"] == "hook_reel")
     assert f.composition == "none" and row["composition_registered"] and row["ready"], row
+
+
+# ---------------------------------------------------------------- sheet gate v2 (face finding)
+def _face_image(size, faces, skin=(170, 125, 100), hair=(45, 32, 25), bg=(128, 128, 128)):
+    """Grey backdrop; for each (cx, cy, fw) a hair block, a skin oval and two eyes and a mouth to match on."""
+    im = Image.new("RGB", size, bg)
+    from PIL import ImageDraw
+    d = ImageDraw.Draw(im)
+    W, H = size
+    for cx, cy, fw in faces:
+        fw_px, fh_px = fw * W, fw * W * 1.3
+        x0, y0 = cx * W - fw_px / 2, cy * H - fh_px / 2
+        d.rectangle([x0 - fw_px * 0.3, y0 - fh_px * 0.2, x0 + fw_px * 1.3, y0 + fh_px * 1.5], fill=hair)
+        d.ellipse([x0, y0, x0 + fw_px, y0 + fh_px], fill=skin)
+        for ex in (0.3, 0.7):
+            d.ellipse([x0 + fw_px * (ex - 0.08), y0 + fh_px * 0.38, x0 + fw_px * (ex + 0.08), y0 + fh_px * 0.46], fill=(40, 30, 28))
+        d.rectangle([x0 + fw_px * 0.35, y0 + fh_px * 0.72, x0 + fw_px * 0.65, y0 + fh_px * 0.76], fill=(120, 60, 60))
+    return im
+
+
+def _write_cast(ws, name, master_faces, sheet_faces, sheet_skin=(170, 125, 100), face=(0.28, 0.18, 0.72, 0.62)):
+    d = ws.dir("personas") / name
+    (d / "candidates").mkdir(parents=True, exist_ok=True)
+    _face_image((1024, 1536), master_faces).save(d / "master.png")
+    SW, SH = 1536, 1024
+    top = cast.SHEET_TOP_ROW
+    faces = []
+    for i, (dx, dy, fw) in enumerate(sheet_faces):
+        if dx is None:
+            continue
+        cx = (i + 0.5 + dx) / cast.SHEET_PANELS
+        cy = top[1] + (top[3] - top[1]) * dy
+        faces.append((cx, cy, fw / cast.SHEET_PANELS))
+    _face_image((SW, SH), faces, skin=sheet_skin).save(d / "sheet.png")
+    write_json(d / "cast.json", {"name": name, "state": "blocked", "blocked_gate": "sheet_drift", "touches": 1,
+                                 "calls": [], "master_from": "c1", "face_box": list(face)})
+    return d
+
+
+MASTER = [(0.5, 0.40, 0.44)]
+
+
+def test_facefind_locates_a_moved_and_resized_face():
+    from engine.qc import facefind
+    master = _face_image((1024, 1536), MASTER)
+    panel = _face_image((220, 320), [(0.62, 0.62, 0.45)])  # lower right, smaller share of the image
+    r = facefind.locate(panel, master, (0.28, 0.18, 0.72, 0.62))
+    assert r["confident"] and abs((r["box"][0] + r["box"][2]) / 2 - 0.62) < 0.1 and abs((r["box"][1] + r["box"][3]) / 2 - 0.62) < 0.1
+    assert not facefind.locate(Image.new("RGB", (220, 320), (128, 128, 128)), master, (0.28, 0.18, 0.72, 0.62))["confident"]
+
+
+def test_sheet_with_long_dark_hair_and_low_faces_passes(ws):
+    """Michelle (hair fills the panels) and Imani (faces sit low) both used to be at the mercy of layout."""
+    placements = [(0, 0.45, 0.55), (0.05, 0.5, 0.5), (None, 0, 0), (0, 0.62, 0.45), (None, 0, 0), (0, 0.55, 0.5), (-0.05, 0.6, 0.5)]
+    _write_cast(ws, "hairy", MASTER, placements)
+    st = cast.remeasure(ws, "hairy")
+    m = read_json(ws.dir("personas") / "hairy/measure.json")
+    assert st["state"] == "sheet_measured", m["failed"]
+    assert len(m["sheet"]["matched_panels"]) >= 4 and abs(m["sheet"]["row"]["lum"] - m["master"]["lum"]) <= 12
+    old_whole_row = skin.measure_array(skin.crop(skin.load_rgb(ws.dir("personas") / "hairy/sheet.png"), cast.SHEET_TOP_ROW))
+    assert m["master"]["lum"] - old_whole_row["lum"] > 12  # the v1 measurement would have blocked this sheet
+    pack = cast.approve(ws, "hairy")
+    assert pack["qc_targets"]["method"] == cast.METHOD and pack["skin_box"] and pack["sheet_check"]["gate"] == "measured"
+
+
+def test_sheet_with_really_different_skin_still_blocks(ws):
+    placements = [(0, 0.5, 0.5)] * 7
+    _write_cast(ws, "drifted", MASTER, placements, sheet_skin=(235, 205, 190))
+    with pytest.raises(Blocked) as e:
+        cast.remeasure(ws, "drifted")
+    assert e.value.gate == "sheet_drift"
+    with pytest.raises(FoundryError, match="cannot be approved by eye"):
+        cast.approve(ws, "drifted", visual_check="looks fine to me")
+    assert not (ws.dir("personas") / "drifted/pack.json").exists()
+
+
+def test_unmeasurable_sheet_needs_a_human_look(ws):
+    _write_cast(ws, "blank", MASTER, [(None, 0, 0)] * 7)
+    with pytest.raises(Blocked) as e:
+        cast.remeasure(ws, "blank")
+    assert e.value.gate == "sheet_unmeasurable" and "--visual-check" in e.value.evidence
+    with pytest.raises(FoundryError, match="visual-check"):
+        cast.approve(ws, "blank")
+    pack = cast.approve(ws, "blank", visual_check="same face, same skin in all seven heads")
+    assert pack["sheet_check"]["gate"] == "sheet_unmeasurable" and "same face" in pack["sheet_check"]["note"]
+
+
+def test_remeasure_a_locked_pack_requires_approval_again(ws):
+    _write_cast(ws, "relock", MASTER, [(0, 0.5, 0.5)] * 7)
+    cast.remeasure(ws, "relock")
+    cast.approve(ws, "relock")
+    assert (ws.dir("personas") / "relock/pack.json").exists()
+    assert cast.remeasure(ws, "relock", face=(0.3, 0.2, 0.7, 0.6))["state"] == "sheet_measured"
+    assert not (ws.dir("personas") / "relock/pack.json").exists()
+
+
+def test_specs_refuse_packs_measured_the_old_way(ws):
+    locked(ws, "nova")
+    pack = read_json(ws.dir("personas") / "nova/pack.json")
+    pack["qc_targets"]["method"] = "engine.qc.skin face-box v1"
+    write_json(ws.dir("personas") / "nova/pack.json", pack)
+    r = spec_mod.resolve(ws, spec_mod.new(ws, "@t", "oldpack"))
+    assert any("--remeasure" in x for x in r["problems"])
+
+
+REAL_CASTS = [("michelle", Path(os.environ.get("FOUNDRY_MICHELLE_DIR", "/Users/akashmunshi/foundry-test/personas/michelle")),
+               (0.33, 0.19, 0.67, 0.57)),
+              ("imani", Path(os.environ.get("FOUNDRY_CALIBRATION_DIR", "/Users/akashmunshi/gmm-contents")) / "personas/imani",
+               (0.36, 0.27, 0.64, 0.52))]
+
+
+@pytest.mark.parametrize("name,d,face", REAL_CASTS)
+def test_real_sheets_pass_the_v2_gate(name, d, face):
+    if not (d / "sheet.png").exists():
+        pytest.skip(f"{name} images not on this machine")
+    master = skin.measure_face(d / "master.png", face)
+    sheet = cast.measure_sheet(d / "sheet.png", d / "master.png", face)
+    assert len(sheet["matched_panels"]) >= cast.MIN_MATCHED_PANELS
+    assert abs(sheet["row"]["lum"] - master["lum"]) <= 12, (sheet["row"], master)
+    assert abs(sheet["row"]["r_minus_b"] - master["r_minus_b"]) <= 16

@@ -21,8 +21,14 @@ measured skin matches the master's. That is what keeps a creator identical acros
 4. Open the chosen `candidates/cN.png` and find the face. Run
    `foundry cast <name> --pick cN --face x0,y0,x1,y1 --json` with the face box as fractions
    (forehead to chin, ear to ear).
-   - `BLOCKED sheet_drift`: show `sheet.png` and `measure.json` numbers, explain in one line
-     which way it drifted, and re-run the same `--pick` once. A second drift: stop and report.
+   - `BLOCKED sheet_drift`: the face was found on the sheet and its skin really differs. Show
+     `sheet.png` and the numbers from `measure.json`, say in one line which way it drifted, and
+     re-run the same `--pick` once. A second drift: stop and report.
+   - `BLOCKED sheet_unmeasurable`: the numbers could not find the face on the sheet. Show
+     `sheet.png` and ask the human whether it is the same person with the same skin. On yes:
+     `foundry cast <name> --approve --visual-check "<what they checked>"` (counts as touch 2).
+   - If the face box was wrong, `foundry cast <name> --remeasure --face x0,y0,x1,y1` checks the
+     same images again without generating anything.
 5. Show `sheet.png`. **Touch 2.** AskUserQuestion: approve the sheet, or re-pick.
 6. `foundry cast <name> --approve [--story "..."] [--wardrobe "..."] --json`.
 7. Report the pack's skin targets and that the creator is ready for `/foundry-spec`.

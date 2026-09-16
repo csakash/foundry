@@ -123,6 +123,9 @@ def resolve(ws: Workspace, piece: Piece) -> dict[str, Any]:
     warnings: list[str] = []
     if spec.get("creator") in packs:
         pack = cast.load_pack(ws, spec["creator"])
+        if pack["qc_targets"].get("method") != cast.METHOD:
+            problems.append(f"creator {spec['creator']} was measured with an older method ({pack['qc_targets'].get('method')}); "
+                            f"run `foundry cast {spec['creator']} --remeasure` then `--approve`")
         spec["qc_targets"]["skin"] = pack["qc_targets"]["skin"]
         for sh in spec["shots"]:
             sh["wardrobe"] = sh.get("wardrobe") or pack.get("wardrobe_default")
