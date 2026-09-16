@@ -1,0 +1,2 @@
+{"account": "@fixture.account", "slug": "legacy-carousel", "title": "Legacy carousel fixture", "post_type": "carousel",
+ "hook": {"line": "Fixture hook"}, "beats": [{"id": "b1", "text": "one"}, {"id": "b2", "text": "two"}]}

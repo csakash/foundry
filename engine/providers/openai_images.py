@@ -33,7 +33,7 @@ class ImageRefused(RuntimeError):
 class OpenAIImages:
     kind = "openai-images"
 
-    def __init__(self, model: str = "gpt-image-2.5", quality: str = "high", rpm_images: int = 5,
+    def __init__(self, model: str = "gpt-image-2.5-sunburst", quality: str = "high", rpm_images: int = 5,
                  retries: int = 5, timeout: int = 300):
         self.model, self.quality, self.rpm, self.retries, self.timeout = model, quality, rpm_images, retries, timeout
         self._slots: list[float] = []

@@ -21,10 +21,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "requires": "0.1.x",
     "dirs": {"personas": "personas", "accounts": "accounts", "work": "work", "pipelines": "pipelines"},
     "providers": {
-        "image": {"kind": "openai-images", "model": "gpt-image-2.5", "quality": "high", "rpm_images": 5},
+        # gpt-image-2.5 (the SPEC.md example) returns model_not_found; -sunburst cast Imani (verified 2026-09-16)
+        "image": {"kind": "openai-images", "model": "gpt-image-2.5-sunburst", "quality": "high", "rpm_images": 5},
         "vision": {"kind": "agent"},
         "video": {"kind": "higgsfield-mcp", "model": "seedance_2_5", "resolution": "720p", "aspect": "9:16",
-                  "audio": False},
+                  "audio": False, "mcp_server": None},
     },
     "defaults": {"mode": "bypass", "fix_cycles": 2, "credit_ceiling_multiplier": 3, "max_duration_s": 60,
                  "sheet_candidates": 3},

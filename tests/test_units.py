@@ -1,0 +1,227 @@
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+import pytest
+
+from engine import formats
+from engine.providers.fake_images import FakeImages
+from foundry import build, caption, cast, spec as spec_mod, util, workspace
+from foundry.piece import Piece
+from foundry.util import Blocked, FoundryError, read_json, write_json
+
+from .conftest import video
+
+
+@pytest.fixture
+def ws(tmp_path: Path) -> workspace.Workspace:
+    w, _ = workspace.init(tmp_path / "ws")
+    cfg = read_json(w.root / "foundry.json")
+    cfg["providers"]["image"] = {"kind": "fake"}
+    write_json(w.root / "foundry.json", cfg)
+    return workspace.load(w.root)
+
+
+def locked(ws: workspace.Workspace, name: str) -> None:
+    cast.bootstrap(ws, name, "original adult creator", n=2, provider=FakeImages())
+    cast.pick(ws, name, "c1", provider=FakeImages())
+    cast.approve(ws, name)
+
+
+# ---------------------------------------------------------------- workspace + util
+def test_version_pinning():
+    assert workspace.version_ok("0.1.x", "0.1.7")
+    assert workspace.version_ok("0.1.0", "0.1.0")
+    assert not workspace.version_ok("0.2.x", "0.1.0")
+    assert not workspace.version_ok("0.1.x", "0.10.0")
+
+
+def test_load_refuses_version_mismatch(ws):
+    cfg = read_json(ws.root / "foundry.json")
+    cfg["requires"] = "9.9.x"
+    write_json(ws.root / "foundry.json", cfg)
+    with pytest.raises(FoundryError, match="requires foundry 9.9.x"):
+        workspace.load(ws.root)
+    with pytest.raises(FoundryError, match="foundry init"):
+        workspace.load(ws.root.parent)
+
+
+def test_dotenv_does_not_override(tmp_path, monkeypatch):
+    monkeypatch.setenv("FOUNDRY_T1", "from-env")
+    monkeypatch.delenv("FOUNDRY_T2", raising=False)
+    (tmp_path / ".env").write_text("# c\nFOUNDRY_T1=file\nexport FOUNDRY_T2='quoted value'\nbad line\n")
+    assert util.load_dotenv(tmp_path / ".env") == ["FOUNDRY_T2"]
+    assert os.environ["FOUNDRY_T1"] == "from-env" and os.environ["FOUNDRY_T2"] == "quoted value"
+    monkeypatch.delenv("FOUNDRY_T2")
+
+
+def test_dotted_paths_and_values():
+    d: dict = {}
+    util.set_path(d, "assets.0.path", "a.mp4")
+    util.set_path(d, "hook.line", "x")
+    assert d == {"assets": [{"path": "a.mp4"}], "hook": {"line": "x"}}
+    assert util.get_path(d, "assets.0.path") == "a.mp4" and util.get_path(d, "assets.3.path") is None
+    assert util.parse_value("[0, 20]") == [0, 20] and util.parse_value("hello world") == "hello world"
+
+
+# ---------------------------------------------------------------- invoice
+def test_invoice_reserve_settle_and_ceiling(ws):
+    p = Piece.create(ws, "@t", "inv")
+    e1 = p.reserve("video_credits", 32.5, "unfrozen: no ceiling")
+    p.settle(e1, ok=False)
+    assert p.spent("video_credits") == 0
+    inv = p.invoice
+    inv.update(frozen=True, ceilings={"video_credits": 40})
+    write_json(p.rel("invoice.json"), inv)
+    p.reserve("video_credits", 32.5, "first")
+    with pytest.raises(Blocked, match="budget.video_credits"):
+        p.reserve("video_credits", 32.5, "second")
+    assert p.state == "blocked"
+
+
+def test_piece_refuses_bad_account_and_duplicates(ws):
+    with pytest.raises(FoundryError):
+        Piece.create(ws, "noat", "x")
+    Piece.create(ws, "@t", "dup")
+    with pytest.raises(FoundryError):
+        Piece.create(ws, "@t", "dup")
+
+
+# ---------------------------------------------------------------- resolver
+def test_resolver_requires_a_cast_creator(ws):
+    with pytest.raises(FoundryError, match="cast"):
+        spec_mod.new(ws, "@t", "nocreator") and spec_mod.resolve(ws, Piece.open(ws, "@t/nocreator"))
+
+
+def test_resolver_single_creator_asks_two(ws):
+    locked(ws, "nova")
+    p = spec_mod.new(ws, "@t", "one")
+    r = spec_mod.resolve(ws, p)
+    assert [q["id"] for q in r["questions"]] == ["hook", "assets"]
+    s = p.spec
+    assert s["creator"] == "nova" and s["resolved_from"]["creator"] == "only_option"
+    assert s["qc_targets"]["skin"]["tol"]["lum"] == 12 and s["resolved_from"]["qc_targets.skin"] == "pack"
+
+
+def test_resolver_two_creators_asks_which(ws):
+    locked(ws, "nova")
+    locked(ws, "orion")
+    r = spec_mod.resolve(ws, spec_mod.new(ws, "@t", "two"))
+    q = next(q for q in r["questions"] if q["id"] == "creator")
+    assert q["options"] == ["nova", "orion"] and len(r["questions"]) == 3
+
+
+def test_resolver_problems_and_warnings(ws):
+    locked(ws, "nova")
+    (ws.dir("accounts") / "@t").mkdir(parents=True)
+    write_json(ws.dir("accounts") / "@t" / "charter.json", {"never_list": ["No 'get rich' promises."]})
+    (ws.root / "notes.txt").write_text("x")
+    p = spec_mod.new(ws, "@t", "warn")
+    r = spec_mod.set_values(ws, p, ["hook.line=How I get rich — fast", "assets.0.path=notes.txt"], touch=True)
+    assert not r["complete"] and "not a video" in r["problems"][0]
+    assert any("get rich" in w for w in r["warnings"]) and any("dash" in w for w in r["warnings"])
+    assert p.status["touches"] == 1 and p.state == "created"
+
+
+def test_resolver_complete_sets_budget_and_state(ws):
+    locked(ws, "nova")
+    video(ws.root / "clip.mp4", seconds=1)
+    p = spec_mod.new(ws, "@t", "done")
+    r = spec_mod.set_values(ws, p, ["hook.line=ok", "assets.0.path=clip.mp4"])
+    assert r["complete"] and p.state == "specced"
+    b = p.spec["budget"]
+    assert b["planned"] == {"image_call": 4.0, "video_credits": 32.5}
+    assert b["ceiling"] == {"image_call": 12.0, "video_credits": 97.5}
+    assert p.spec["structure"][-1]["t"] == [5, 25]
+    md = (p.path / "SPEC.md").read_text()
+    assert md.count("**unresolved**") == 0 and "State: **specced**" in md
+
+
+def test_set_reopens_and_freezes(ws):
+    locked(ws, "nova")
+    video(ws.root / "clip.mp4", seconds=1)
+    p = spec_mod.new(ws, "@t", "freeze")
+    spec_mod.set_values(ws, p, ["hook.line=ok", "assets.0.path=clip.mp4"])
+    p.set_state("approved")
+    with pytest.raises(FoundryError, match="frozen"):
+        spec_mod.set_values(ws, p, ["hook.line=changed"])
+
+
+def test_prompts_render_from_pack_and_scene(ws):
+    locked(ws, "nova")
+    video(ws.root / "clip.mp4", seconds=1)
+    p = spec_mod.new(ws, "@t", "prompts")
+    spec_mod.set_values(ws, p, ["hook.line=ok line", "assets.0.path=clip.mp4"])
+    s = p.spec
+    ff = spec_mod.first_frame_prompt(ws, s, guidance="skin drifted warm")
+    assert "EXACT SAME PERSON, Nova" in ff and "CORRECTIONS FROM QC: skin drifted warm" in ff
+    assert "{" not in ff
+    mo = spec_mod.motion_prompt(ws, s)
+    assert mo.count(" s: Nova ") == 5 and "{" not in mo
+    assert '"ok line"' in spec_mod.layout_prompt(s)
+
+
+# ---------------------------------------------------------------- cast
+def test_cast_touch_counting_and_order(ws):
+    with pytest.raises(FoundryError):
+        cast.pick(ws, "nova", "c1", provider=FakeImages())
+    cast.bootstrap(ws, "nova", "original adult creator", n=2, provider=FakeImages())
+    with pytest.raises(FoundryError):
+        cast.approve(ws, "nova")
+    with pytest.raises(FoundryError):
+        cast.pick(ws, "nova", "c9", provider=FakeImages())
+    cast.pick(ws, "nova", "c2", provider=FakeImages())
+    pack = cast.approve(ws, "nova", story="s", wardrobe="grey tee")
+    assert pack["cast_touches"] == 2 and pack["wardrobe_default"] == "grey tee"
+    with pytest.raises(FoundryError, match="already locked"):
+        cast.bootstrap(ws, "nova", "again", provider=FakeImages())
+
+
+def test_cast_bootstrap_applies_safety_rewrites(ws):
+    fake = FakeImages()
+    cast.bootstrap(ws, "lint", "wears a sheer blouse", n=2, provider=fake)
+    assert "sheer" not in fake.calls[0]["prompt"] and "opaque blouse" in fake.calls[0]["prompt"]
+
+
+# ---------------------------------------------------------------- caption
+def test_caption_numbers_and_band(tmp_path):
+    meta = caption.render({"text": "I made my monthly salary in just a few minutes using this app", "font": "TikTok Sans Bold",
+                           "size_pct_w": 6.6, "band_start_pct_h": 11, "stroke_pct": 12.5}, tmp_path / "c.png")
+    assert meta["font_px"] == 71 and len(meta["lines"]) >= 2
+    x0, y0, x1, y1 = meta["box"]
+    assert 0.10 <= x0 and x1 <= 0.90 and 0.105 <= y0 <= 0.13
+    assert meta["font_substituted"] == (meta["font_used"] != "TikTok Sans Bold")
+    assert json.loads((tmp_path / "c.json").read_text())["box"] == meta["box"]
+
+
+# ---------------------------------------------------------------- build modes
+def test_build_modes(ws):
+    locked(ws, "nova")
+    video(ws.root / "clip.mp4", seconds=1)
+    p = spec_mod.new(ws, "@t", "modes")
+    spec_mod.set_values(ws, p, ["hook.line=ok", "assets.0.path=clip.mp4"])
+    with pytest.raises(FoundryError, match="approved sheet"):
+        build.build(ws, p, "bypass", dry_run=True)
+    p.set_state("approved")
+    with pytest.raises(FoundryError, match="autonomous"):
+        build.build(ws, p, "autonomous", dry_run=True)
+    out = build.build(ws, p, "bypass", cycles=3, dry_run=True)
+    assert "--permission-mode" in out["argv"] and "acceptEdits" in out["argv"] and "warning" in out
+    assert p.status["fix_cycles"] == 3 and "3 regeneration(s)" in out["prompt"]
+    with pytest.raises(FoundryError, match="mcp_server"):
+        build.build(ws, p, "bypass")
+    cfg = read_json(ws.root / "foundry.json")
+    cfg.setdefault("providers", {}).setdefault("video", {})["mcp_server"] = "higgsfield"
+    write_json(ws.root / "foundry.json", cfg)
+    out = build.build(workspace.load(ws.root), p, "bypass", dry_run=True)
+    assert "mcp__higgsfield" in out["argv"][-1] and "warning" not in out
+    assert build.build(ws, p, "interactive")["next"].startswith("run /foundry-build")
+
+
+# ---------------------------------------------------------------- formats router
+def test_hook_reel_registered_and_ready():
+    f = formats.BY_KEY["hook_reel"]
+    row = next(r for r in formats.readiness() if r["key"] == "hook_reel")
+    assert f.composition == "none" and row["composition_registered"] and row["ready"], row

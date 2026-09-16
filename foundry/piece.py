@@ -81,6 +81,9 @@ class Piece:
         st.update(fields)
         st["history"].append({"state": state, "at": now(), **{k: v for k, v in fields.items() if k != "history"}})
         self.save_status(st)
+        if (self.path / "spec.json").exists():  # SPEC.md carries the state line; keep it current
+            from .spec import render_md
+            (self.path / "SPEC.md").write_text(render_md(self.spec, self))
         return st
 
     def touch(self, what: str) -> int:

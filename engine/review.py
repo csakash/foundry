@@ -134,10 +134,13 @@ def collect(work_dir: Path) -> dict[str, Any]:
     script = read_json(wd / "02-script.json")
     board = read_json(wd / "03-board" / "board.json")
     qc = read_json(wd / "06-qc.json")
+    # Foundry Loops pieces carry one spec.json instead of the staged files. Read it
+    # second so a legacy piece renders exactly as before (tests/test_review_legacy.py).
+    spec = read_json(wd / "spec.json")
 
-    src = script or brief or intake or {}
+    src = script or brief or intake or spec or {}
     account_handle = src.get("account")
-    persona_slug = src.get("persona") or (brief or {}).get("persona")
+    persona_slug = src.get("persona") or (brief or {}).get("persona") or (spec or {}).get("creator")
 
     account = charter = portfolio = priors = None
     if account_handle:
@@ -247,7 +250,7 @@ def collect(work_dir: Path) -> dict[str, Any]:
                         row["_thumb_note"] = f"{Path(thumb).name} — {why}"
             break
 
-    return {
+    out = {
         "slug": src.get("slug") or wd.name,
         "work_dir": str(wd.relative_to(ROOT)) if ROOT in wd.parents else str(wd),
         "account_handle": account_handle,
@@ -270,6 +273,10 @@ def collect(work_dir: Path) -> dict[str, Any]:
         },
         "embed_used_mb": round(budget.used / 1e6, 2),
     }
+    if spec is not None:  # only when present: legacy payloads stay byte-identical
+        out["spec"] = spec
+        out["stages"]["spec"] = True
+    return out
 
 
 # ---------------------------------------------------------------- rendering

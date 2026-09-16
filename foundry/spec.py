@@ -209,14 +209,15 @@ def render_md(spec: dict[str, Any], piece: Piece | None = None) -> str:
         L += [f"State: **{st['state']}** · touches {st.get('touches', 0)} · cycles "
               + ", ".join(f"{k} {v}" for k, v in st["cycles"].items()), ""]
     L += ["| Slot | Value | From |", "|---|---|---|"]
-    rows = [("creator", spec.get("creator"), rf.get("creator")),
-            ("hook", (spec.get("hook") or {}).get("line"), rf.get("hook")),
-            ("mechanism", (spec.get("hook") or {}).get("mechanism"), ""),
-            ("product clip", get_path(spec, "assets.0.path"), rf.get("assets")),
-            ("audio", get_path(spec, "audio.kind"), rf.get("audio")),
-            ("recipe", spec.get("recipe"), "")]
-    for k, v, f in rows:
-        L.append(f"| {k} | {v if v not in (None, '') else '**unresolved**'} | {f or ''} |")
+    rows = [("creator", spec.get("creator"), rf.get("creator"), True),
+            ("hook", (spec.get("hook") or {}).get("line"), rf.get("hook"), True),
+            ("mechanism", (spec.get("hook") or {}).get("mechanism"), "", False),
+            ("product clip", get_path(spec, "assets.0.path"), rf.get("assets"), True),
+            ("audio", get_path(spec, "audio.kind"), rf.get("audio"), True),
+            ("recipe", spec.get("recipe"), "", False)]
+    for k, v, f, required in rows:
+        shown = v if v not in (None, "") else ("**unresolved**" if required else "none")
+        L.append(f"| {k} | {shown} | {f or ''} |")
     if spec.get("structure"):
         L += ["", "## Structure", ""] + [f"- {s['t'][0]:.0f}-{s['t'][1]:.0f} s: {s['beat']}" for s in spec["structure"]]
     for sh in spec.get("shots", []):
