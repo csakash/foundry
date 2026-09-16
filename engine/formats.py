@@ -88,6 +88,18 @@ CAPABILITIES: dict[str, dict] = {
                         "how": "Pexels API adapter (needs PEXELS_API_KEY) + generative fallback"},
     "music_bed":       {"probe": ROOT / "engine" / "music.py",
                         "how": "ElevenLabs Music v2 -> bed, ducked under VO in the mix"},
+
+    # --- Foundry Loops (hook_reel): the loop's own modules are the capabilities
+    "persona_cast":    {"probe": ROOT / "foundry" / "cast.py", "symbol": "def pick",
+                        "how": "foundry cast: master -> sheet -> measured skin targets, fail closed on drift"},
+    "image_edit":      {"probe": ROOT / "engine" / "providers" / "openai_images.py", "symbol": "def edit",
+                        "how": "OpenAI images edit with identity references"},
+    "video_i2v":       {"probe": ROOT / "skills" / "foundry-build" / "SKILL.md", "symbol": "generate_video",
+                        "how": "Higgsfield MCP seedance_2_5 image-to-video, driven by the build agent"},
+    "captions_burn":   {"probe": ROOT / "foundry" / "caption.py", "symbol": "def render",
+                        "how": "reel-style caption PNG burned over the persona shot with ffmpeg"},
+    "qc_skin":         {"probe": ROOT / "engine" / "qc" / "skin.py", "symbol": "def check"},
+    "qc_frame0":       {"probe": ROOT / "engine" / "qc" / "frame0.py", "symbol": "def check"},
 }
 
 
@@ -146,7 +158,18 @@ FORMATS.append(
            "biography, so the hook must be information, never autobiography.",
            evidence_required=False))
 
+FORMATS.append(
+    Format("hook_reel", 0, "Persona hook reel -> product cut (Foundry Loops)", ["UGC"], (20, 30),
+           "none", ["persona_cast", "image_edit", "video_i2v", "captions_burn", "qc_skin", "qc_frame0"],
+           ["persona-identity", "hook"], "≈ 32.5 video credits + 4-12 image calls",
+           "One persona reaction shot (seedance_2_5 from an approved first frame) hard-cut into a product clip, "
+           "caption burned in. Built by the loop, not Remotion: `foundry new` -> sheet -> approve -> build. "
+           "SPEC.md on feat/foundry-loops is the contract.",
+           evidence_required=False))
+
 BY_KEY = {f.key: f for f in FORMATS}
+
+NO_COMPOSITION = {"none"}  # formats assembled outside Remotion
 
 
 def capability_present(name: str) -> bool:
@@ -183,7 +206,7 @@ def readiness() -> list[dict]:
     out = []
     for f in FORMATS:
         missing = [c for c in f.needs_capabilities if not capability_present(c)]
-        comp_missing = f.composition not in comps
+        comp_missing = f.composition not in NO_COMPOSITION and f.composition not in comps
         out.append({
             "key": f.key, "rank": f.rank, "title": f.title, "lanes": f.lanes,
             "composition": f.composition,

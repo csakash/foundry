@@ -10,3 +10,4 @@ loops.json
 # Foundry workspace outputs never belong in the tool repo
 work/
 personas/
+*.egg-info/
