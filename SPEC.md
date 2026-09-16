@@ -76,7 +76,7 @@ CLI surface (all commands print JSON with `--json`):
 
 ```json
 {
-  "requires": "0.1.x",
+  "requires": "1.0.x",
   "dirs": {"personas": "personas", "accounts": "accounts", "work": "work", "pipelines": "pipelines"},
   "providers": {
     "image": {"kind": "openai-images", "model": "gpt-image-2.5", "quality": "high", "rpm_images": 5},

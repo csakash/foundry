@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "foundry"
-version = "0.1.0"
+version = "1.0.0"
 description = "Creator Foundry: cast / spec / build / ship loops for a local short-form content factory"
 requires-python = ">=3.11"
 dependencies = ["Pillow>=10", "numpy>=1.26"]

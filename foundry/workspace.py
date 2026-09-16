@@ -18,7 +18,7 @@ from .util import FoundryError, load_dotenv, read_json, write_json
 CONFIG = "foundry.json"
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "requires": "0.1.x",
+    "requires": "1.0.x",
     "dirs": {"personas": "personas", "accounts": "accounts", "work": "work", "pipelines": "pipelines"},
     "providers": {
         # gpt-image-2.5 (the SPEC.md example) returns model_not_found; -sunburst cast Imani (verified 2026-09-16)
@@ -79,8 +79,9 @@ def load(start: str | Path | None = None, check_version: bool = True) -> Workspa
     raw = read_json(root / CONFIG, {})
     requires = raw.get("requires", DEFAULT_CONFIG["requires"])
     if check_version and not version_ok(requires):
-        raise FoundryError(f"{CONFIG} requires foundry {requires}, installed is {__version__}. "
-                           f"Upgrade the CLI or change `requires`.")
+        raise FoundryError(f"{CONFIG} requires foundry {requires}, installed is {__version__}. Upgrade the CLI "
+                           f"(git pull, then ./setup) or, if this workspace is ready for {__version__}, set "
+                           f"\"requires\": \"{'.'.join(__version__.split('.')[:2])}.x\" in {CONFIG}.")
     load_dotenv(root / ".env")
     return Workspace(root, _merge(DEFAULT_CONFIG, raw))
 
