@@ -1,0 +1,21 @@
+Create ONE ultra-photorealistic vertical portrait photograph of an original adult character. This is an
+identity master: every later image of her or him is an edit of this picture, so the face must be clear,
+neutral and fully visible.
+
+WHO: {brief}
+
+FRAMING: head and shoulders to upper chest, facing the camera straight on, eyes open and looking into the
+lens, relaxed neutral expression with lips closed, hair not covering the eyes. Centered, with the face
+filling the middle third of the frame.
+
+BACKDROP AND LIGHT: plain seamless mid-grey studio backdrop. Soft, even, NEUTRAL WHITE key light from the
+front, no coloured gels, no warm lamps, no rim light that changes the skin tone. Skin tone must read
+exactly as described above.
+
+WARDROBE: simple opaque everyday top in a solid colour. No logos.
+
+REALISM: real skin with visible pores and natural shine, separated hair strands, natural catchlights.
+Not retouched, not airbrushed, not glamour.
+
+NEGATIVE: text, watermark, logo, a real or famous person's likeness, extra people, hands covering the face,
+sunglasses, hats, heavy shadows, cartoon, CGI, 3D render, plastic skin.

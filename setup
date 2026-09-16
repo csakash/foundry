@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Install the foundry CLI and link its skills. Re-run to upgrade.
+#   ./setup            install + link skills into ~/.claude/skills
+#   ./setup --no-skills
+# CLAUDE_SKILLS_DIR overrides the skills target (used by tests).
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+skills_dir="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
+
+need() { command -v "$1" >/dev/null 2>&1 || { echo "✗ $1 is required: $2" >&2; exit 1; }; }
+need python3 "https://www.python.org/downloads/"
+need ffmpeg "brew install ffmpeg"
+need ffprobe "brew install ffmpeg"
+python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' || { echo "✗ Python >= 3.11 required" >&2; exit 1; }
+
+if [ -n "${VIRTUAL_ENV:-}" ]; then
+  python3 -m pip install --editable "$here"
+elif command -v pipx >/dev/null 2>&1; then
+  pipx install --force --editable "$here"
+else
+  python3 -m pip install --user --editable "$here" 2>/dev/null \
+    || python3 -m pip install --user --break-system-packages --editable "$here"
+  echo "  (pipx not found: installed with pip --user; make sure $(python3 -m site --user-base)/bin is on PATH)"
+fi
+
+if [ "${1:-}" != "--no-skills" ]; then
+  mkdir -p "$skills_dir"
+  for s in foundry foundry-cast foundry-spec foundry-build foundry-ship; do
+    target="$skills_dir/$s"
+    if [ -e "$target" ] && [ ! -L "$target" ]; then
+      echo "  skip $s: $target exists and is not a symlink (remove it to let setup manage it)"
+      continue
+    fi
+    ln -sfn "$here/skills/$s" "$target"
+    echo "  linked $s -> $target"
+  done
+fi
+echo "✓ foundry $(python3 -c "import sys; sys.path.insert(0, '$here'); import foundry; print(foundry.__version__)") installed. Next: cd <workspace> && foundry init && foundry doctor"

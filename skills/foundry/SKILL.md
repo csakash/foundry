@@ -1,14 +1,62 @@
 ---
 name: foundry
-description: Router for the Creator Foundry skill suite — the gstack of content creation. Use when the user says /foundry, asks which foundry command fits, or starts any content-production task in this repo (birthing an influencer/account, briefing, scripting, storyboarding, producing, QC, saving a piece as a reusable pipeline, or batch/parallel runs). Routes to the stage flow and loads the right craft skills per stage.
+description: Conversational driver for Creator Foundry loops. Invoke as `/foundry <plain English>`; it reads where each piece is (`foundry ls`) and advances it one step — cast a creator, spec a piece in one question round, render the approval sheet, build it green, ship the handoff — so the user describes what they want instead of memorizing commands. Also routes the legacy staged commands (research, brief, script, board) until Foundry Loops acceptance passes.
+allowed-tools:
+  - Bash
+  - Read
+  - Skill
+  - AskUserQuestion
 ---
 
-# Creator Foundry — the video-creation stack
+# /foundry — the loop driver
 
-Terminal-native production system for this repo. No app: Claude Code is the engine,
-these skills are the product, and every stage writes a typed artifact to disk
-(`work/<account>/<slug>/NN-*.json`). Canonical process: `JOURNEY.md`. Product
-blueprint: the "Creator Foundry" artifact (URL in memory).
+Four verbs and one file per piece. The human decides twice (the spec answers, the
+sheet approval); everything after the sheet is a loop against machine QC that never
+ships red. Contract: `SPEC.md` on `feat/foundry-loops`.
+
+```
+/foundry-cast <name>   master -> sheet -> measured targets -> pack   (once per creator)
+/foundry-spec          <= 5 questions in one round -> spec.json + sheet   (touch 1, touch 2 = approve)
+/foundry-build         frames -> clip -> cut, QC loops, BLOCKED names the gate
+/foundry-ship          re-check, publish handoff, recipe; never posts in bypass
+```
+
+## 1. Where are we?
+
+Run `foundry ls --json` in the workspace (the directory with `foundry.json`; if none,
+offer `foundry init`). Pick the piece the prompt names; if several are open and the
+prompt names none, ask which. Read its `state`.
+
+## 2. Map state to the next step
+
+| State | Next step |
+|---|---|
+| no creator with `pack.json` | `/foundry-cast` |
+| no piece for this idea | `foundry new <@account> <slug> [--recipe <name>]`, then `/foundry-spec` |
+| `created` | `/foundry-spec` (answers the open questions) |
+| `specced` | `/foundry-spec` renders the sheet |
+| `sheet_pending` | show `sheet/index.html` and wait for the approval. Never approve for the user |
+| `approved` / `building` | `/foundry-build` |
+| `green` | `/foundry-ship` |
+| `blocked` | report `blocked_gate` and the evidence from `status.json`; propose the fix, do not retry past the budget |
+| `shipped` | remind: post it, then `foundry posted <piece> --url`; `foundry reap` later |
+
+## 3. Autonomy
+
+After the sheet is approved, keep going through build and ship without another
+prompt, unless the user said stop, pause, or "just X". The spec round and the sheet
+approval are always the human's. Never ship red, never post.
+
+## 4. Report
+
+Each turn: which piece, what ran, the state now, what happens next. A few lines.
+
+---
+
+# Legacy router (Creator Foundry staged commands)
+
+Kept until Foundry Loops acceptance criterion 7 passes; then these routes are removed
+in one commit. New video work goes through the loop above.
 
 ## The vision — full-stack content creators
 

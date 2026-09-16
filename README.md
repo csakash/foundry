@@ -6,6 +6,41 @@ No app, no UI. Claude Code is the engine, the skills are the product, and every 
 
 The end state is a **full-stack content creator**: you birth an influencer once — identity, look, voice, a hero image you approve like a casting decision — and from then on you just drop ideas. The Foundry is the writer, director, cinematographer, editor, and QC; you are the taste. You never need to know production vocabulary: every question comes in plain words with a recommended default, and "you choose" is always a valid answer. Output is **posts**, not just videos — image posts and carousels are the same journey stopped at the storyboard, so every video project yields image derivatives for free.
 
+
+## Foundry Loops (v0.1): cast / spec / build / ship
+
+Short-form video as a loop: the human decides twice, a machine-checked build does the rest,
+and nothing ships red. Contract and acceptance criteria: [`SPEC.md`](SPEC.md).
+
+```bash
+./setup                                   # CLI on PATH + skills into ~/.claude/skills
+cd ~/my-factory && foundry init           # foundry.json; put OPENAI_API_KEY in .env
+foundry doctor                            # says exactly what is still missing, with links
+```
+
+You connect two outside services once:
+
+| Service | Used for | How to connect |
+|---|---|---|
+| OpenAI | characters, sheets, first frames | create a key at https://platform.openai.com/api-keys and add `OPENAI_API_KEY=sk-...` to the workspace `.env` |
+| Higgsfield MCP | the video clips | needs a Higgsfield account with credits (https://higgsfield.ai). Add `https://mcp.higgsfield.ai/mcp` as a custom connector at https://claude.ai/settings/connectors, or run `claude mcp add --transport http higgsfield https://mcp.higgsfield.ai/mcp` |
+
+| Step | Command | Human? |
+|---|---|---|
+| Cast a creator once | `/foundry-cast nova` (`foundry cast nova --brief ... / --pick cN / --approve`) | pick master, approve sheet |
+| New piece | `foundry new @account slug [--recipe name]` | no |
+| Spec it | `/foundry-spec` (`foundry resolve`, `foundry set ... --touch`, `foundry sheet`) | one round, at most 5 questions |
+| Approve the sheet | `foundry approve @account/slug --candidate c2` | yes, the only gate before spend |
+| Build | `/foundry-build` or `foundry build @account/slug --mode bypass` | no |
+| Ship | `/foundry-ship` (`foundry ship`), then post and `foundry posted` | posts by hand |
+
+`foundry ls` shows every piece's state, cycles and credits; `foundry reap` clears media from
+posted pieces. Or just say `/foundry <what you want>`.
+
+Headless builds need `providers.video.mcp_server` in `foundry.json` (the video MCP server's name as
+Claude Code lists it). The session gets `foundry`, reads under `work/`, and six named video tools,
+nothing else. Optionally pin `providers.video.transfer_hosts` to the provider's upload and CDN hosts.
+
 ## Why it exists
 
 Most AI video workflows collapse "what should this say?", "what should it look like?" and "render it" into one prompt. That is how you spend money on motion for an idea nobody vetted.

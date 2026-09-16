@@ -2,3 +2,12 @@
 __pycache__/
 engine/cache/
 .venv*/
+# gstack-loops: worktrees, registry, and the workspace file stay local (see CLAUDE.md)
+worktrees/
+.loops/
+loops.json
+.DS_Store
+# Foundry workspace outputs never belong in the tool repo
+work/
+personas/
+*.egg-info/

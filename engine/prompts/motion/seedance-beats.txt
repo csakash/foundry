@@ -1,0 +1,8 @@
+A candid, static phone video. {camera} The same person, {name}, {setting_short}
+
+{beats}
+
+{motion_rules} {light} Their face, skin tone, hair, jewellery and clothing stay identical throughout. Natural, realistic human motion; hands always have five fingers.
+
+NEGATIVE: {negative}
+{guidance}

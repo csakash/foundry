@@ -1,0 +1,18 @@
+Using the reference image as the ONLY source for the character's identity, create ONE character
+consistency sheet of this EXACT SAME PERSON on a plain mid-grey background, landscape layout.
+
+IDENTITY LOCK: reproduce the exact same person. Do not redesign, beautify or reinterpret. Preserve facial
+structure, proportions, eyes, nose, lips, jawline, hairline, hairstyle, age, and above all the exact skin
+tone and undertone of the reference under the same neutral white light. {skin_rule}
+
+LAYOUT (strict):
+- TOP ROW: seven head-and-shoulders views of equal size, left to right: front, three-quarter left, left
+  profile, three-quarter right, right profile, looking up, looking down. Same neutral light in all seven.
+- MIDDLE ROW: two full-body views (front and back) and three expression close-ups (soft smile, surprise,
+  laughing).
+- BOTTOM ROW: detail crops of eyes, lips, hair texture, and a hand with five fingers.
+
+Small plain labels under each panel are fine. Opaque everyday clothing in one solid colour throughout.
+
+NEGATIVE: a different face in any panel, warm or coloured light on the skin, different skin tone between
+panels, extra fingers, cartoon, CGI, watermark, logo.
