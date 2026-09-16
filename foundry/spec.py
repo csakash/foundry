@@ -145,11 +145,20 @@ def resolve(ws: Workspace, piece: Piece) -> dict[str, Any]:
             if info["duration"] + 0.05 < end:
                 problems.append(f"product clip {asset} is {info['duration']}s but the cut trims to {end:g}s; "
                                 f"set assets.0.trim_s to fit")
+            if get_path(spec, "audio.kind") == "trending":
+                track = get_path(spec, "audio.path")
+                try:
+                    if not track or not inside(ws.root, track, "audio track").exists():
+                        problems.append(f"audio is 'trending' but audio.path {track!r} does not exist")
+                except FoundryError as e:
+                    problems.append(str(e))
             if get_path(spec, "audio.kind") == "clip" and not info["has_audio"]:
                 problems.append(f"audio is 'clip' but {asset} has no audio track")
     for sh in spec["shots"]:
         try:
             check_name(sh["id"], SHOT_RE, "shot id")
+            if sh["id"] in ("history", "incoming") or sh["id"].startswith("."):
+                raise FoundryError(f"shot id {sh['id']!r} is reserved")
             check_name(sh["scene"], NAME_RE, "scene id")
             hook_reel.scene(sh["scene"])
         except (FoundryError, FileNotFoundError) as e:

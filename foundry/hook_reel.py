@@ -44,13 +44,16 @@ def defaults() -> dict[str, Any]:
 
 
 def structure(spec: dict[str, Any]) -> list[dict[str, Any]]:
+    """Back to back, exactly as foundry.cut assembles it; each asset's enter_at_s is derived, not trusted."""
     t, out = 0.0, []
     for sh in spec["shots"]:
         out.append({"t": [t, t + sh["duration_s"]], "beat": f"{sh['id']}: persona reaction"})
         t += sh["duration_s"]
     for a in spec["assets"]:
         dur = a["trim_s"][1] - a["trim_s"][0]
-        out.append({"t": [a["enter_at_s"], a["enter_at_s"] + dur], "beat": "product cut"})
+        a["enter_at_s"] = t
+        out.append({"t": [t, t + dur], "beat": "product cut"})
+        t += dur
     return out
 
 

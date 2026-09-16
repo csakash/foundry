@@ -150,8 +150,7 @@ def run_qc(ws: Workspace, piece: Piece, stage: str) -> dict[str, Any]:
         cs = q.get("caption_safe", {})
         checks["caption_band"] = caption_band.check(cap["box"], box, cs.get("top_pct", 11), cs.get("bottom_pct", 71))
         checks["loudness"] = loudness.check(final, spec["audio"]["kind"])
-        charter = read_json(ws.dir("accounts") / piece.status["account"] / "charter.json")
-        checks["text_lint"] = text_lint.lint(spec["captions"]["text"], charter)
+        checks["text_lint"] = text_lint.lint(spec["captions"]["text"], lock.get("charter"))  # the charter as approved
 
     failed = [k for k, v in checks.items() if not v["pass"]]
     st = piece.status
@@ -263,7 +262,7 @@ def ingest_clip(ws: Workspace, piece: Piece, mp4: Path, job: str, shot: str = "s
     except Exception:
         shutil.rmtree(stage_dir, ignore_errors=True)
         raise
-    piece.consume("video_credits", job)
+    piece.consume("video_credits", job, check_only=True)
     cycle = piece.bump_cycle("clip") if regeneration else piece.status["cycles"]["clip"]
     invalidate(piece, ["clip", "cut"], [f"clips/{shot}/frames/f_0001.png"])
     if regeneration:
@@ -276,6 +275,7 @@ def ingest_clip(ws: Workspace, piece: Piece, mp4: Path, job: str, shot: str = "s
     (stage_dir / f"{shot}.mp4").replace(dst)
     (stage_dir / "frames").replace(piece.rel("clips", shot, "frames"))
     shutil.rmtree(stage_dir, ignore_errors=True)
+    piece.consume("video_credits", job)  # the payment is spent only once the clip is in place
     write_json(piece.rel("clips", f"{shot}.json"), {"source": str(src), "job": job, "cycle": cycle, "at": now(),
                                                    "frames": [f.name for f in frames], "probe": info})
     return {"piece": piece.ref, "shot": shot, "cycle": cycle, "frames": len(frames),
@@ -325,7 +325,8 @@ def upload_approved(ws: Workspace, piece: Piece, url: str) -> dict[str, Any]:
         return {"piece": piece.ref, "uploaded": APPROVED, "bytes": len(data), "http": r.status}
 
 
-def fetch_clip(ws: Workspace, piece: Piece, url: str, job: str, shot: str = "shot01") -> dict[str, Any]:
+def download_clip(ws: Workspace, piece: Piece, url: str, job: str, shot: str = "shot01") -> Path:
+    """Runs without the piece lock (a download can take minutes); ingest then takes it."""
     piece.require("building")
     check_name(shot, SHOT_RE, "shot id")
     opener, hosts = _opener(ws)
@@ -345,7 +346,4 @@ def fetch_clip(ws: Workspace, piece: Piece, url: str, job: str, shot: str = "sho
         part.replace(dst)
     finally:
         part.unlink(missing_ok=True)
-    try:
-        return ingest_clip(ws, piece, dst, job=job, shot=shot)
-    finally:
-        dst.unlink(missing_ok=True)
+    return dst

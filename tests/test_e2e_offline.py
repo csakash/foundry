@@ -473,3 +473,53 @@ def test_sheet_refusals_lose_candidates_not_the_piece(ws: Path):
     assert p.state == "sheet_pending"
     failed = [e for e in read_json(root / "work/@test/refused/invoice.json")["entries"] if e["state"] == "failed"]
     assert len(failed) == 4
+
+
+def test_shared_file_changes_do_not_block_a_paid_piece(ws: Path):
+    """Verification repro: creating the account charter after approval blocked the piece forever."""
+    root = ws
+    cast_nova(root)
+    p = approved_piece(root, "charter")
+    (root / "accounts/@test").mkdir(parents=True, exist_ok=True)
+    write_json(root / "accounts/@test/charter.json", {"never_list": ["No 'monthly salary' claims."]})
+    pass_frames(root, p.ref)  # not BLOCKED inputs.changed_after_approval
+    assert read_json(root / "work/@test/charter/approved.lock.json")["charter"] is None  # lint uses the approved charter
+
+
+def test_dry_run_never_blocks(ws: Path):
+    root = ws
+    cast_nova(root)
+    p = approved_piece(root, "dry")
+    cfg = read_json(root / "foundry.json")
+    cfg["providers"]["video"]["mcp_server"] = "higgsfield"
+    write_json(root / "foundry.json", cfg)
+    video(root / "assets/product/walkthrough.mp4", seconds=22, size="1080x1920", color="0x00ff00", audio="tone")
+    code, res = sh(root, "build", p.ref, "--mode", "bypass", "--dry-run")
+    assert code == 0 and read_json(root / "work/@test/dry/status.json")["state"] == "approved"
+    assert not any(t in res["argv"] for t in ("Read(~/**)", "Read"))
+    assert "Read(./work/**)" in res["argv"]
+
+
+def test_resolve_catches_missing_music_and_real_cut_length(ws: Path):
+    root = ws
+    cast_nova(root)
+    sh(root, "new", "@test", "music")
+    code, res = sh(root, "set", "@test/music", HOOK, ASSET, "audio.kind=trending", "audio.path=assets/nope.mp3")
+    assert not res["complete"] and any("nope.mp3" in x for x in res["problems"])
+    code, res = sh(root, "set", "@test/music", "audio.kind=silent", "shots.0.duration_s=10", "assets.0.trim_s=[0, 22]")
+    assert not res["complete"] and any("32s" in x for x in res["problems"])  # 10 s shot + 22 s asset, back to back
+    code, res = sh(root, "set", "@test/music", "shots.0.id=history")
+    assert any("reserved" in x for x in res["problems"])
+
+
+def test_build_pidfile_is_exclusive(tmp_path: Path):
+    import os
+    from foundry.build import _claim_pidfile
+    pid = tmp_path / ".build.pid"
+    fd = _claim_pidfile(pid, "@t/x")
+    os.write(fd, str(os.getpid()).encode())
+    os.close(fd)
+    with pytest.raises(FoundryError, match="already running"):
+        _claim_pidfile(pid, "@t/x")
+    pid.write_text("999999")  # a dead build
+    os.close(_claim_pidfile(pid, "@t/x"))

@@ -170,6 +170,13 @@ def dispatch(a: argparse.Namespace) -> tuple[Any, int]:
         return ops.reap(ws, dry_run=a.dry_run), 0
 
     piece = Piece.open(ws, a.piece)
+    if a.cmd == "fetch":  # the download runs unlocked; only the ingest holds the piece
+        mp4 = loop.download_clip(ws, piece, a.url, job=a.job, shot=a.shot)
+        try:
+            with piece.exclusive():
+                return loop.ingest_clip(ws, piece, mp4, job=a.job, shot=a.shot), 0
+        finally:
+            mp4.unlink(missing_ok=True)
     if a.cmd == "build":  # not under the piece lock: the session it spawns runs foundry commands on this piece
         res = build_mod.build(ws, piece, a.mode or ws.defaults["mode"], a.fix_cycles, a.dry_run)
         headless_run = "exit_code" in res
@@ -218,8 +225,7 @@ def _piece_command(a: argparse.Namespace, ws, piece: Piece) -> tuple[Any, int]:
         return loop.ingest_clip(ws, piece, Path(a.mp4), job=a.job, shot=a.shot), 0
     if a.cmd == "upload":
         return loop.upload_approved(ws, piece, a.url), 0
-    if a.cmd == "fetch":
-        return loop.fetch_clip(ws, piece, a.url, job=a.job, shot=a.shot), 0
+
     if a.cmd == "cut":
         return cut_mod.build(ws, piece), 0
     if a.cmd == "ship":

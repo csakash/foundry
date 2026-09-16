@@ -16,7 +16,7 @@ import subprocess
 from typing import Any
 
 from .piece import Piece
-from .util import AGENT_ENV, FoundryError, human_only
+from .util import AGENT_ENV, FoundryError, human_only, read_json
 from .workspace import Workspace
 
 PERMISSION_MODE = {"interactive": "default", "bypass": "dontAsk"}  # dontAsk: anything not allowlisted is denied
@@ -72,7 +72,10 @@ def argv(ws: Workspace, piece: Piece, mode: str, cycles: int) -> list[str]:
         raise FoundryError(f"providers.video.mcp_server {server!r} must match {SERVER_RE.pattern}")
     work = ws.config["dirs"]["work"]
     allowed = ["Bash(foundry:*)", f"Read(./{work}/**)"] + [f"mcp__{server}__{t}" for t in VIDEO_TOOLS]
-    denied = (["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Read(./.env)", "Read(~/**)"]
+    # dontAsk + the allowlist already confine reads to work/. Never deny a home-wide pattern: the
+    # workspace itself usually lives under the home directory and deny rules beat allow rules.
+    denied = (["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Read(./.env)", "Read(~/.ssh/**)",
+               "Read(~/.aws/**)", "Read(~/.config/**)"]
               + [f"Bash(foundry {s}:*)" for s in HUMAN_STEPS])
     return ["claude", "-p", prompt(ws, piece, cycles), "--permission-mode", PERMISSION_MODE[mode],
             "--allowedTools", *allowed, "--disallowedTools", *denied]
@@ -86,7 +89,9 @@ def build(ws: Workspace, piece: Piece, mode: str, cycles: int | None = None, dry
         raise FoundryError("autonomous mode would post without a human; posting is not implemented in v1. Use --mode bypass.")
     if piece.state not in ("approved", "building"):
         raise FoundryError(f"{piece.ref} is '{piece.state}'; build needs an approved sheet (foundry approve)")
-    lock = piece.lock
+    lock = read_json(piece.rel("approved.lock.json")) or {}
+    if not lock:
+        raise FoundryError(f"{piece.ref} has no approval lock; approve the sheet first")
     if cycles is not None and cycles != lock["fix_cycles"]:
         if piece.state != "approved":
             raise FoundryError("the retry budget is fixed once the build has started")
@@ -105,22 +110,41 @@ def build(ws: Workspace, piece: Piece, mode: str, cycles: int | None = None, dry
     if not shutil.which("claude"):
         raise FoundryError("claude CLI not on PATH")
     pidfile = piece.rel(".build.pid")
-    if pidfile.exists():
-        try:
-            os.kill(int(pidfile.read_text().strip()), 0)
-            raise FoundryError(f"a build is already running for {piece.ref} (pid {pidfile.read_text().strip()})")
-        except (ProcessLookupError, ValueError):
-            pidfile.unlink(missing_ok=True)
+    fd = _claim_pidfile(pidfile, piece.ref)
     env = {**os.environ, AGENT_ENV: "1"}
-    proc = subprocess.Popen(args, cwd=ws.root, env=env)
-    pidfile.write_text(str(proc.pid))
     try:
-        out["exit_code"] = proc.wait(timeout=BUILD_TIMEOUT_S)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        out["exit_code"] = "timeout"
+        proc = subprocess.Popen(args, cwd=ws.root, env=env, start_new_session=True)
+        os.write(fd, str(proc.pid).encode())
+        os.close(fd)
+        fd = None
+        try:
+            out["exit_code"] = proc.wait(timeout=BUILD_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, 9)  # claude and any foundry command it started
+            proc.wait()
+            out["exit_code"] = "timeout"
     finally:
+        if fd is not None:
+            os.close(fd)
         pidfile.unlink(missing_ok=True)
     out["state"] = piece.status["state"]
     out["blocked_gate"] = piece.status.get("blocked_gate") if out["state"] == "blocked" else None
     return out
+
+
+def _claim_pidfile(pidfile, ref: str) -> int:
+    """O_EXCL create: two builds racing for one piece cannot both win. A stale file from a dead build is reclaimed."""
+    for _ in range(2):
+        try:
+            return os.open(pidfile, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            try:
+                pid = int(pidfile.read_text().strip() or 0)
+                os.kill(pid, 0)
+            except (ValueError, ProcessLookupError):
+                pidfile.unlink(missing_ok=True)
+                continue
+            except PermissionError:
+                pass
+            raise FoundryError(f"a build is already running for {ref} (pidfile {pidfile})")
+    raise FoundryError(f"could not claim {pidfile}")

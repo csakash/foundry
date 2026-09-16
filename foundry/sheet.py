@@ -207,6 +207,7 @@ def approve(ws: Workspace, piece: Piece, candidate: str) -> dict[str, Any]:
     if piece.status.get("sheet_spec_sha256") != piece.spec_hash():
         raise FoundryError("the spec changed after the sheet was rendered; render the sheet again so the approval "
                            "covers what will be built")
+    piece.locked_inputs()  # raises on a missing input before anything is frozen
     piece.rel("frames").mkdir(exist_ok=True)
     shutil.copyfile(src, piece.rel(APPROVED))
     spec = piece.spec

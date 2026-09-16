@@ -166,9 +166,10 @@ class Piece:
         return hashlib.sha256((self.path / "spec.json").read_bytes()).hexdigest()
 
     def locked_inputs(self) -> dict[str, str]:
-        """Everything the build reads besides spec.json, hashed at approval: the creator's identity files,
-        the product clip, the account charter, the scene, and the prompt templates."""
-        from . import REPO
+        """This piece's own inputs besides spec.json, hashed at approval: the creator's identity files, the
+        product clip and any music track. Shared files (the account charter, repo scenes and templates) are
+        deliberately not hashed: editing them for the next piece must not block this one. The charter the
+        cut is linted against is snapshotted into the lock instead."""
         from .util import inside
         spec = self.spec
         paths = {}
@@ -177,20 +178,18 @@ class Piece:
             paths[f"persona/{name}"] = pdir / name
         for i, a in enumerate(spec["assets"]):
             paths[f"asset/{i}"] = inside(self.ws.root, a["path"], "product clip")
-        charter = self.ws.dir("accounts") / self.status["account"] / "charter.json"
-        if charter.exists():
-            paths["charter"] = charter
-        for sh in spec["shots"]:
-            paths[f"scene/{sh['scene']}"] = REPO / "catalog/scenes" / f"{sh['scene']}.json"
-        for t in ("engine/prompts/frame/first-frame.txt", "engine/prompts/motion/seedance-beats.txt"):
-            paths[t] = REPO / t
-        if spec["audio"].get("path"):
+        if spec["audio"].get("path") and spec["audio"].get("kind") == "trending":
             paths["audio"] = inside(self.ws.root, spec["audio"]["path"], "audio track")
+        missing = [k for k, v in paths.items() if not v.exists()]
+        if missing:
+            raise FoundryError("approval needs these inputs, which are missing: " + ", ".join(missing))
         return {k: sha256_file(v) for k, v in paths.items()}
 
     def write_lock(self, fix_cycles: int) -> dict[str, Any]:
         spec = self.spec
-        lock = {"spec_sha256": self.spec_hash(), "inputs": self.locked_inputs(), "qc_targets": spec["qc_targets"],
+        charter = read_json(self.ws.dir("accounts") / self.status["account"] / "charter.json")
+        lock = {"spec_sha256": self.spec_hash(), "inputs": self.locked_inputs(), "charter": charter,
+                "qc_targets": spec["qc_targets"],
                 "fix_cycles": int(fix_cycles), "max_duration_s": self.ws.defaults["max_duration_s"],
                 "min_video_reservation": min_video_reservation(spec), "locked_at": now()}
         write_json(self.path / LOCK, lock)
@@ -205,6 +204,8 @@ class Piece:
         if self.spec_hash() != lock["spec_sha256"]:
             raise self.block("spec.changed_after_approval",
                              "spec.json no longer matches the approved hash; QC limits cannot be trusted")
+        if "inputs" not in lock:  # approved before inputs were locked
+            return lock
         try:
             current = self.locked_inputs()
         except (FileNotFoundError, FoundryError) as e:
@@ -284,11 +285,11 @@ class Piece:
         write_json(self.path / "invoice.json", inv)
         return e
 
-    def consume(self, unit: str, ref: str) -> dict[str, Any]:
+    def consume(self, unit: str, ref: str, check_only: bool = False) -> dict[str, Any]:
         with self.exclusive():
-            return self._consume(unit, ref)
+            return self._consume(unit, ref, check_only)
 
-    def _consume(self, unit: str, ref: str) -> dict[str, Any]:
+    def _consume(self, unit: str, ref: str, check_only: bool = False) -> dict[str, Any]:
         """Tie a generated asset to the settled reservation that paid for it, once."""
         inv = self.invoice
         e = next((x for x in inv["entries"] if x["unit"] == unit and x.get("ref") == ref
@@ -296,6 +297,8 @@ class Piece:
         if e is None:
             raise FoundryError(f"no settled, unused {unit} reservation with ref {ref!r}; "
                                f"reserve before generating and settle with --ref {ref}")
+        if check_only:
+            return e
         e["consumed"] = now()
         write_json(self.path / "invoice.json", inv)
         return e
