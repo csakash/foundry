@@ -11,7 +11,7 @@ from engine.providers import get_image_provider
 
 from . import __version__, services
 from .piece import Piece
-from .util import read_json
+from .util import human_only, read_json
 from .workspace import Workspace, version_ok
 
 SKILLS = ["foundry", "foundry-cast", "foundry-spec", "foundry-build", "foundry-ship"]
@@ -52,11 +52,14 @@ def doctor(ws: Workspace | None, offline: bool = False) -> dict[str, Any]:
                 row(f"image model {img['model']}", "ok" if ok else "fail", detail)
         else:
             row("image provider", "warn", f"kind={img['kind']} (offline fake, spends nothing)")
-    listed = None if offline else services.list_mcp()
+    listed = None if offline else services.list_mcp(cwd=str(ws.root) if ws else None)
     for server in services.MCP_SERVERS:
         status, lines = services.mcp_status(server, listed)
         row(f"{server['name']} MCP", status, "\n".join(lines))
-    order = ["fail", "todo", "warn", "ok"]
+    if ws is not None and not ws.config["providers"]["video"].get("transfer_hosts"):
+        row("transfer hosts", "note", "foundry upload/fetch accept any public https host; list the provider's upload "
+                                      "and CDN hosts in providers.video.transfer_hosts to restrict them")
+    order = ["fail", "todo", "warn", "ok"]  # "note" rows never change the overall status
     worst = next(s for s in order if s == "ok" or any(r["status"] == s for r in rows))
     return {"status": {"todo": "action needed"}.get(worst, worst), "checks": rows}
 
@@ -76,7 +79,6 @@ KEEP = {"SPEC.md", "spec.json", "status.json", "invoice.json", "publish.json", "
 
 
 def reap(ws: Workspace, dry_run: bool = False) -> list[dict[str, Any]]:
-    from .util import human_only
     human_only("reap")
     reaped = []
     for p in Piece.all(ws):

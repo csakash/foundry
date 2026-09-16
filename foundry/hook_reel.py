@@ -9,8 +9,10 @@ import copy
 import math
 from typing import Any
 
+from engine.qc import caption_band
+
 from . import REPO
-from .util import read_json
+from .util import NAME_RE, check_name, read_json
 
 FORMAT = "hook_reel"
 DEFAULT_SCENE = "reaction-facepalm-reveal"
@@ -18,7 +20,6 @@ UNIT_CREDITS = {"image_call": 1, "video_5s": 32.5}
 
 
 def scene(scene_id: str) -> dict[str, Any]:
-    from .util import NAME_RE, check_name
     s = read_json(REPO / "catalog/scenes" / f"{check_name(scene_id, NAME_RE, 'scene id')}.json")
     if not s:
         raise FileNotFoundError(f"no scene catalog/scenes/{scene_id}.json")
@@ -39,7 +40,7 @@ def defaults() -> dict[str, Any]:
         "captions": {"font": "TikTok Sans Bold", "size_pct_w": 6.6, "band": "top", "band_start_pct_h": 11,
                      "stroke_pct": 12.5, "text": None, "during": "shot01"},
         "qc_targets": {"skin": None, "frame0_max_diff": 30, "drift_max_lum": 12, "drift_max_rb": 12,
-                       "caption_safe": {"top_pct": 11, "bottom_pct": 71}, "cut_duration_s": [20, 30]},
+                       "caption_safe": dict(caption_band.SAFE_DEFAULT), "cut_duration_s": [20, 30]},
     }
 
 

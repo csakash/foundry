@@ -164,10 +164,23 @@ def file_lock(path: str | Path):
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
-def sha256_file(path: str | Path, chunk: int = 1 << 20) -> str:
+def sha256_file(path: str | Path) -> str:
     import hashlib
-    h = hashlib.sha256()
     with open(path, "rb") as f:
-        while b := f.read(chunk):
-            h.update(b)
-    return h.hexdigest()
+        return hashlib.file_digest(f, "sha256").hexdigest()
+
+
+MIN_FACE_SIDE = 0.05
+
+
+def check_face_box(face) -> list[float]:
+    """x0,y0,x1,y1 as fractions: inside the image, positive area, at least 5 % on each side."""
+    try:
+        x0, y0, x1, y1 = (float(v) for v in face)
+    except (TypeError, ValueError):
+        raise FoundryError("a face box is four numbers x0,y0,x1,y1")
+    if not (0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1):
+        raise FoundryError("face box must be fractions with 0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1")
+    if x1 - x0 < MIN_FACE_SIDE or y1 - y0 < MIN_FACE_SIDE:
+        raise FoundryError(f"face box is too small (each side must be at least {MIN_FACE_SIDE})")
+    return [x0, y0, x1, y1]

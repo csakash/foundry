@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -15,7 +16,7 @@ from typing import Any
 from . import __version__, build as build_mod, cast, cut as cut_mod, loop, ops, sheet, ship as ship_mod, spec as spec_mod
 from . import workspace
 from .piece import Piece
-from .util import Blocked, FoundryError, human_only, read_json
+from .util import AGENT_ENV, Blocked, FoundryError, check_face_box, human_only, read_json
 
 
 def _floats(s: str) -> list[float]:
@@ -25,7 +26,10 @@ def _floats(s: str) -> list[float]:
         raise argparse.ArgumentTypeError("expected x0,y0,x1,y1")
     if len(v) != 4:
         raise argparse.ArgumentTypeError("expected four numbers x0,y0,x1,y1")
-    return v
+    try:
+        return check_face_box(v)
+    except FoundryError as e:
+        raise argparse.ArgumentTypeError(str(e))
 
 
 def parser() -> argparse.ArgumentParser:
@@ -145,6 +149,8 @@ def parser() -> argparse.ArgumentParser:
 
 
 def dispatch(a: argparse.Namespace) -> tuple[Any, int]:
+    if a.cwd and os.environ.get(AGENT_ENV):
+        raise FoundryError("the build agent runs in its workspace; -C is not allowed under FOUNDRY_AGENT")
     start = Path(a.cwd).resolve() if a.cwd else None
     if a.cmd == "init":
         human_only("init")
@@ -183,6 +189,21 @@ def dispatch(a: argparse.Namespace) -> tuple[Any, int]:
                 return loop.ingest_clip(ws, piece, mp4, job=a.job, shot=a.shot), 0
         finally:
             mp4.unlink(missing_ok=True)
+    if a.cmd == "status":  # read-only: never wait behind a running cut
+        return piece.status, 0
+    if a.cmd == "prompt":  # read-only too
+        spec = piece.spec
+        guidance = ""
+        if a.guidance_from:
+            guidance = ((read_json(piece.rel("qc", f"{a.guidance_from}.json")) or {}).get("guidance")) or ""
+        if a.kind == "frame":
+            return {"prompt": spec_mod.first_frame_prompt(ws, spec, guidance)}, 0
+        video = ws.config["providers"]["video"]
+        text = spec_mod.motion_prompt(ws, spec, 0, guidance)
+        return {"prompt": text, "start_image": str(piece.rel(loop.APPROVED)),
+                "params": {"model": video["model"], "prompt": text, "duration": spec["shots"][0]["duration_s"],
+                           "aspect_ratio": video["aspect"], "get_cost": True,
+                           "medias": [{"role": "<start image role from models_explore>", "value": "<media_id>"}]}}, 0
     if a.cmd == "build":  # not under the piece lock: the session it spawns runs foundry commands on this piece
         res = build_mod.build(ws, piece, a.mode or ws.defaults["mode"], a.fix_cycles, a.dry_run)
         headless_run = "exit_code" in res
@@ -207,19 +228,6 @@ def _piece_command(a: argparse.Namespace, ws, piece: Piece) -> tuple[Any, int]:
         return loop.record_region(piece, a.image, a.face), 0
     if a.cmd == "verdict":
         return loop.record_verdict(piece, a.check, a.stage, a.ok, a.note), 0
-    if a.cmd == "prompt":
-        spec = piece.spec
-        guidance = ""
-        if a.guidance_from:
-            guidance = ((read_json(piece.rel("qc", f"{a.guidance_from}.json")) or {}).get("guidance")) or ""
-        if a.kind == "frame":
-            return {"prompt": spec_mod.first_frame_prompt(ws, spec, guidance)}, 0
-        video = ws.config["providers"]["video"]
-        text = spec_mod.motion_prompt(ws, spec, 0, guidance)
-        return {"prompt": text, "start_image": str(piece.rel(loop.APPROVED)),
-                "params": {"model": video["model"], "prompt": text, "duration": spec["shots"][0]["duration_s"],
-                           "aspect_ratio": video["aspect"], "get_cost": True,
-                           "medias": [{"role": "<start image role from models_explore>", "value": "<media_id>"}]}}, 0
     if a.cmd == "reserve":
         return {"entry": piece.reserve(a.unit, a.amount, a.note or a.unit), "spent": piece.spent(a.unit),
                 "ceiling": piece.invoice["ceilings"].get(a.unit)}, 0
@@ -238,8 +246,6 @@ def _piece_command(a: argparse.Namespace, ws, piece: Piece) -> tuple[Any, int]:
         return ship_mod.ship(ws, piece, a.recipe), 0
     if a.cmd == "posted":
         return ship_mod.posted(ws, piece, a.url), 0
-    if a.cmd == "status":
-        return piece.status, 0
     raise FoundryError(f"unknown command {a.cmd}")
 
 

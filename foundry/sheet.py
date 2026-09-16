@@ -14,13 +14,12 @@ from typing import Any
 from PIL import Image, ImageDraw
 
 from engine.providers import get_image_provider
-from engine.providers.openai_images import ImageRefused
 from engine.qc import safety_lint
 
 from . import cast, media
 from .caption import overlay, render as render_caption
 from .imaging import capture_treatment, find_font, font, save_png
-from .loop import _attempts
+from .loop import paid_image_edit
 from .piece import APPROVED, Piece
 from .spec import first_frame_prompt, layout_prompt
 from .util import CANDIDATE_RE, FoundryError, check_name, human_only, inside, now, write_json
@@ -35,23 +34,6 @@ def cover(src: Path, dst: Path, size=media.OUTPUT_SIZE) -> Path:
     x, y = (im.width - w) // 2, (im.height - h) // 2
     im.crop((x, y, x + w, y + h)).save(dst)
     return dst
-
-
-def _call(piece: Piece, provider, prompt: str, refs: list[Path], size: str, note: str) -> bytes | None:
-    """One image, one reservation. A safety refusal returns None (the candidate is lost, not the piece)."""
-    lint = safety_lint.lint(prompt)
-    hits = ", ".join(h["phrase"] for h in lint["measures"]["hits"])
-    eid = piece.reserve("image_call", 1.0, note + (f" (safety rewrites: {hits})" if hits else ""))
-    try:
-        out = provider.edit(lint["rewritten"], refs, n=1, size=size)[0]
-    except ImageRefused:
-        piece.settle(eid, ok=False, actual=_attempts(provider))
-        return None
-    except Exception:
-        piece.settle(eid, ok=False, actual=_attempts(provider))
-        raise
-    piece.settle(eid, ok=True, actual=_attempts(provider))
-    return out
 
 
 def render(ws: Workspace, piece: Piece, n: int | None = None, provider=None) -> dict[str, Any]:
@@ -73,7 +55,8 @@ def render(ws: Workspace, piece: Piece, n: int | None = None, provider=None) -> 
     (sd / "first-frame-prompt.txt").write_text(ff_prompt)
     names, refused = [], 0
     for i in range(1, n + 1):
-        data = _call(piece, provider, ff_prompt, [master, char_sheet], "1024x1536", f"sheet candidate c{i}")
+        data = paid_image_edit(piece, provider, ff_prompt, [master, char_sheet], media.FRAME_IMAGE_SIZE,
+                               f"sheet candidate c{i}")
         if data is None:
             refused += 1
             continue
@@ -85,7 +68,8 @@ def render(ws: Workspace, piece: Piece, n: int | None = None, provider=None) -> 
         raise FoundryError(f"the image provider refused {refused} of {n} candidates on safety grounds, leaving "
                            f"{len(names)}; reword the shot (wardrobe, action) with foundry set and render again"
                            + (f". Lint already rewrote: {', '.join(h['phrase'] for h in hits)}" if hits else ""))
-    lay = _call(piece, provider, layout_prompt(spec), [master], "1536x1024", "sheet layout sketch")
+    lay = paid_image_edit(piece, provider, layout_prompt(spec), [master], media.SHEET_IMAGE_SIZE,
+                          "sheet layout sketch")
     if lay is None:  # the sketch is context, not the decision: fall back to a plain panel strip
         Image.new("RGB", (1536, 1024), (238, 236, 230)).save(sd / "layout.png")
     else:

@@ -9,7 +9,7 @@ from typing import Any
 
 from .loop import run_qc
 from .piece import Piece
-from .util import FoundryError, human_only, now, read_json, write_json
+from .util import SLUG_RE, FoundryError, check_name, human_only, now, read_json, write_json
 from .workspace import Workspace
 
 RECIPE_PARAMETERS = [
@@ -20,7 +20,6 @@ RECIPE_PARAMETERS = [
 
 def ship(ws: Workspace, piece: Piece, recipe_name: str | None = None) -> dict[str, Any]:
     human_only("ship")
-    from .util import SLUG_RE, check_name
     piece.require("green")
     spec = piece.spec
     name = check_name(recipe_name or spec["slug"], SLUG_RE, "recipe name")

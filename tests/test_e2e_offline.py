@@ -277,10 +277,12 @@ def test_limits_cannot_be_moved_after_approval(ws: Path, tmp_path: Path):
     cfg = read_json(root / "foundry.json")
     cfg["providers"]["video"]["mcp_server"] = "higgsfield"
     write_json(root / "foundry.json", cfg)
-    assert sh(root, "build", ref, "--dry-run", "--fix-cycles", "50")[0] == 0
+    assert sh(root, "build", ref, "--dry-run", "--fix-cycles", "5")[0] == 0
     assert read_json(root / "work/@test/locked/approved.lock.json")["fix_cycles"] == 2  # dry run changes nothing
-    pass_frames(root, ref)  # state is now building
     code, res = sh(root, "build", ref, "--dry-run", "--fix-cycles", "50")
+    assert code == 2 and "between 0 and 10" in res["error"]
+    pass_frames(root, ref)  # state is now building
+    code, res = sh(root, "build", ref, "--dry-run", "--fix-cycles", "5")
     assert code == 2 and "fixed" in res["error"]
     assert sh(root, "set", ref, "qc_targets.frame0_max_diff=999")[0] == 2
     spec = read_json(root / "work/@test/locked/spec.json")
@@ -320,12 +322,21 @@ def test_agent_cannot_take_human_steps(ws: Path, monkeypatch):
     sh(root, "new", "@test", "agent")
     sh(root, "set", "@test/agent", HOOK, ASSET)
     monkeypatch.setenv("FOUNDRY_AGENT", "1")
+    code, res = sh(root, "ls")
+    assert code == 2 and "-C is not allowed" in res["error"]  # the agent cannot point foundry at another workspace
+    monkeypatch.chdir(root)
+
+    def agent_sh(*args):  # the agent runs inside its workspace, without -C
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+            code = cli.main([*args, "--json"])
+        return code, json.loads(buf.getvalue().strip() or "{}")
     for args in (("sheet", "@test/agent"), ("set", "@test/agent", "hook.line=x"), ("approve", "@test/agent", "--candidate", "c1"),
                  ("build", "@test/agent", "--dry-run"), ("ship", "@test/agent"), ("reap",), ("cast", "evil", "--brief", "x"),
                  ("new", "@test", "other")):
-        code, res = sh(root, *args)
+        code, res = agent_sh(*args)
         assert code == 2 and "human step" in res["error"], args
-    assert sh(root, "ls")[0] == 0
+    assert agent_sh("ls")[0] == 0
 
 
 def test_names_cannot_escape_the_workspace(ws: Path):
@@ -521,5 +532,7 @@ def test_build_pidfile_is_exclusive(tmp_path: Path):
     os.close(fd)
     with pytest.raises(FoundryError, match="already running"):
         _claim_pidfile(pid, "@t/x")
-    pid.write_text("999999")  # a dead build
+    dead = subprocess.Popen(["true"])
+    dead.wait()  # a pid that certainly belonged to a finished process (999999 can be live on Linux)
+    pid.write_text(str(dead.pid))
     os.close(_claim_pidfile(pid, "@t/x"))

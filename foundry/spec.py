@@ -174,8 +174,8 @@ def resolve(ws: Workspace, piece: Piece) -> dict[str, Any]:
         cap = caption.render({**spec["captions"], "text": spec["hook"]["line"]}, piece.rel(".caption-check.png"))
         piece.rel(".caption-check.png").unlink(missing_ok=True)
         piece.rel(".caption-check.json").unlink(missing_ok=True)
-        cs = spec["qc_targets"].get("caption_safe", {})
-        band = caption_band.check(cap["box"], None, cs.get("top_pct", 11), cs.get("bottom_pct", 71))
+        cs = {**caption_band.SAFE_DEFAULT, **spec["qc_targets"].get("caption_safe", {})}
+        band = caption_band.check(cap["box"], None, cs["top_pct"], cs["bottom_pct"])
         problems += [f"caption: {f}" for f in band["measures"]["failed"]]
         if cap["font_substituted"]:
             warnings.append(f"caption font {cap['font_wanted']} is not installed; rendering with {cap['font_used']}")

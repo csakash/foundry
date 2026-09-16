@@ -6,6 +6,10 @@ from pathlib import Path
 
 OUTPUT_SIZE = (1080, 1920)
 FPS = 30
+FRAME_IMAGE_SIZE = "1024x1536"  # portrait size for first frames: sheet candidates and regenerations must match
+SHEET_IMAGE_SIZE = "1536x1024"
+# Clips and product files come from outside; never let ffmpeg follow playlists or URLs inside them.
+SAFE_INPUT = ["-protocol_whitelist", "file,pipe"]
 
 
 def run(cmd: list[str]) -> None:
@@ -25,7 +29,7 @@ def sample_frames(video: Path, out_dir: Path, every: int = 10) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     for old in list(out_dir.glob("f_*.png")) + list(out_dir.glob("raw_*.png")):
         old.unlink()
-    run(["ffmpeg", "-y", "-v", "error", "-i", str(video), "-vf", f"select='not(mod(n\\,{every}))'",
+    run(["ffmpeg", "-y", "-v", "error", *SAFE_INPUT, "-i", str(video), "-vf", f"select='not(mod(n\\,{every}))'",
          "-fps_mode", "vfr", "-start_number", "0", str(out_dir / "raw_%04d.png")])
     renamed = []
     for i, f in enumerate(sorted(out_dir.glob("raw_*.png"))):
@@ -35,12 +39,6 @@ def sample_frames(video: Path, out_dir: Path, every: int = 10) -> list[Path]:
     return renamed
 
 
-def has_audio(src: Path) -> bool:
-    out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=index",
-                          "-of", "csv=p=0", str(src)], capture_output=True, text=True).stdout
-    return bool(out.strip())
-
-
 def normalise(src: Path, dst: Path, start: float, duration: float, keep_audio: bool = False,
               overlay: Path | None = None, size=OUTPUT_SIZE, fps: int = FPS) -> Path:
     """One encode per part: cover-crop to 9:16 (rotation metadata is applied by ffmpeg's autorotate),
@@ -48,7 +46,7 @@ def normalise(src: Path, dst: Path, start: float, duration: float, keep_audio: b
     same length, so every part shares codec parameters and concat can stream-copy."""
     w, h = size
     vf = f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},fps={fps},setsar=1"
-    cmd = ["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", str(src),
+    cmd = ["ffmpeg", "-y", "-v", "error", *SAFE_INPUT, "-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", str(src),
            "-f", "lavfi", "-t", f"{duration:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
     graph = [f"[0:v]{vf}[base]"]
     if overlay:

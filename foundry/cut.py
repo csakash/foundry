@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from engine.qc import duration as qc_duration
 from engine.qc.loudness import TARGET_LUFS
 
 from . import media
@@ -43,7 +44,7 @@ def build(ws: Workspace, piece: Piece) -> dict[str, Any]:
         if not src.exists():
             raise FoundryError(f"product clip {a['path']} is missing")
         t0, t1 = float(a["trim_s"][0]), float(a["trim_s"][1])
-        keep = kind == "clip" and media.has_audio(src)
+        keep = kind == "clip" and qc_duration.probe(src)["has_audio"]
         parts.append(media.normalise(src, cd / "parts" / f"{len(parts):02d}-asset{j}.mp4", t0, t1 - t0, keep_audio=keep))
     joined = media.concat(parts, cd / ("joined.mp4" if kind != "silent" else "final.mp4"))
     if kind == "clip":

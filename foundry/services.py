@@ -37,12 +37,13 @@ def connect_steps(server: dict[str, str]) -> list[str]:
     ]
 
 
-def list_mcp(timeout: int = 90) -> list[dict[str, str]] | None:
-    """Servers as Claude Code sees them, or None when that cannot be determined."""
+def list_mcp(cwd: str | None = None, timeout: int = 90) -> list[dict[str, str]] | None:
+    """Servers as Claude Code sees them from `cwd` (the workspace, where builds run), or None if unknown."""
     if not shutil.which("claude"):
         return None
     try:
-        out = subprocess.run(["claude", "mcp", "list"], capture_output=True, text=True, timeout=timeout).stdout
+        out = subprocess.run(["claude", "mcp", "list"], capture_output=True, text=True, timeout=timeout,
+                             cwd=cwd).stdout
     except (subprocess.TimeoutExpired, OSError):
         return None
     rows = []
@@ -62,7 +63,11 @@ def mcp_status(server: dict[str, str], listed: list[dict[str, str]] | None) -> t
     if listed is None:
         return "todo", ["Could not ask Claude Code which MCP servers are connected; make sure this one is."] \
             + connect_steps(server)
-    match = next((r for r in listed if server["host"] in r["url"]), None)
+    from urllib.parse import urlparse
+    rank = {"connected": 0, "needs_auth": 1, "failed": 2}
+    matches = sorted((r for r in listed if (urlparse(r["url"]).hostname or "") == server["host"]),
+                     key=lambda r: rank.get(r["status"], 3))
+    match = matches[0] if matches else None
     if match and match["status"] == "connected":
         return "ok", [f"connected as '{match['name']}' ({match['url']})"]
     if match and match["status"] == "needs_auth":

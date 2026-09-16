@@ -16,34 +16,44 @@ box. Panels where the face is not found confidently (profiles, odd framing) are 
 Hair is never measured as skin, and no assumption is made about where a sheet puts faces.
 If fewer than two panels can be matched the result is `sheet_unmeasurable`, not drift: a
 human looks at the sheet and may approve it with --visual-check.
+
+Face finding locates *a* face, it does not prove identity: a different person with similar
+skin can match. The gate compares skin brightness, warmth and saturation; identity is the
+human's call at --pick and --approve.
+
+Guards: a sheet that has ever measured as drift for these exact master and sheet images can
+never be approved by eye (re-measuring with a different face box cannot launder it), a
+measurement is tied to the image hashes it read, and a locked creator cannot be re-measured
+while any piece built on it is approved, building or green.
 """
 from __future__ import annotations
 
 import shutil
+import statistics
 from pathlib import Path
 from typing import Any, Sequence
-
-from engine.providers import get_image_provider
-import statistics
 
 import numpy as np
 from PIL import Image
 
+from engine.providers import get_image_provider
 from engine.qc import facefind, safety_lint, skin
 
-from . import REPO
+from . import REPO, media
 from .imaging import contact, save_png
-from .util import CANDIDATE_RE, NAME_RE, Blocked, FoundryError, check_name, human_only, now, read_json, write_json
+from .util import (CANDIDATE_RE, NAME_RE, Blocked, FoundryError, check_face_box, check_name, human_only, now,
+                   read_json, sha256_file, write_json)
 from .workspace import Workspace
 
 DEFAULT_FACE = (0.33, 0.22, 0.67, 0.55)
 SHEET_TOP_ROW = (0.0, 0.02, 1.0, 0.33)
-SKIN_TOL = {"lum": 12, "r_minus_b": 16, "sat_pct": 11}
+SHEET_PANELS = 7  # the sheet template asks for seven heads across the top row
+MIN_MATCHED_PANELS = 2
+METHOD = "engine.qc.skin face-centre + facefind v2"
+SKIN_TOL = {"lum": 12, "r_minus_b": 16, "sat_pct": 11}  # frame/clip QC tolerances written into every pack
+ACTIVE_PIECE_STATES = ("approved", "building", "green")
 CAMERA_RULE = ("Every shot needs a nameable camera position the creator set up themselves: selfie, propped, "
                "POV, object/detail, or handed-over. In a selfie one hand is the camera.")
-
-
-SHEET_PANELS = 7  # the sheet template asks for seven heads across the top row
 
 
 def pdir(ws: Workspace, name: str) -> Path:
@@ -80,17 +90,13 @@ def bootstrap(ws: Workspace, name: str, brief: str, n: int = 3, provider=None) -
     provider = provider or get_image_provider(ws.image, str(ws.root / ".foundry"))
     st["calls"].append({"op": "generate", "n": n, "at": now(), "safety_hits": lint["measures"]["hits"]})
     _save(ws, name, st)
-    outs = provider.generate(prompt, n=n, size="1024x1536")
+    outs = provider.generate(prompt, n=n, size=media.FRAME_IMAGE_SIZE)
     paths = [save_png(b, d / "candidates" / f"c{i + 1}.png") for i, b in enumerate(outs)]
     contact(paths, d / "candidates/contact.png", [p.stem for p in paths], cols=len(paths),
             title=f"{name}: pick a master (foundry cast {name} --pick cN)")
     st.update(state="candidates", brief=brief.strip(), candidates=[p.stem for p in paths])
     _save(ws, name, st)
     return st
-
-
-MIN_MATCHED_PANELS = 2
-METHOD = "engine.qc.skin face-centre + facefind v2"
 
 
 def measure_sheet(sheet_path: Path, master_path: Path, face: Sequence[float]) -> dict[str, Any]:
@@ -119,6 +125,7 @@ def measure_sheet(sheet_path: Path, master_path: Path, face: Sequence[float]) ->
 
 def _gate(ws: Workspace, name: str, st: dict[str, Any], face: Sequence[float]) -> dict[str, Any]:
     """Measure master.png against sheet.png as they stand and set the cast state. No image calls."""
+    face = check_face_box(face)
     d = pdir(ws, name)
     master_m = skin.measure_face(d / "master.png", face)
     if master_m is None:
@@ -138,14 +145,21 @@ def _gate(ws: Workspace, name: str, st: dict[str, Any], face: Sequence[float]) -
             fails.append(f"sheet skin brightness {row['lum']} vs master {master_m['lum']} "
                          f"(delta {delta:+}, max {cfg['max_sheet_lum_delta']})")
         drb = round(row["r_minus_b"] - master_m["r_minus_b"], 1)
-        if abs(drb) > SKIN_TOL["r_minus_b"]:
+        if abs(drb) > cfg["max_sheet_rb_delta"]:
             fails.append(f"sheet skin warmth R-B {row['r_minus_b']} vs master {master_m['r_minus_b']} "
-                         f"(delta {drb:+}, max {SKIN_TOL['r_minus_b']})")
+                         f"(delta {drb:+}, max {cfg['max_sheet_rb_delta']})")
+        dsat = round(row["sat_pct"] - master_m["sat_pct"], 1)
+        if abs(dsat) > cfg["max_sheet_sat_delta"]:
+            fails.append(f"sheet skin saturation {row['sat_pct']}% vs master {master_m['sat_pct']}% "
+                         f"(delta {dsat:+}, max {cfg['max_sheet_sat_delta']})")
         if sheet_m["panel_spread"] > cfg["max_panel_spread"]:
             fails.append(f"matched panels disagree by {sheet_m['panel_spread']} > {cfg['max_panel_spread']}")
+    images = {"master_sha256": sha256_file(d / "master.png"), "sheet_sha256": sha256_file(d / "sheet.png")}
     write_json(d / "measure.json", {"method": METHOD, "master": master_m, "face_box": list(face),
                                     "skin_box": skin.skin_box(face), "sheet": sheet_m, "failed": fails,
-                                    "gate": gate if fails else None, "at": now()})
+                                    "gate": gate if fails else None, "images": images, "at": now()})
+    if gate == "sheet_drift" and fails:  # remembered for these images, whatever face box is used later
+        st.setdefault("drift_seen", []).append({**images, "face_box": list(face), "at": now()})
     if fails:
         (d / "pack.json").unlink(missing_ok=True)
         st.update(state="blocked", blocked_gate=gate)
@@ -172,18 +186,33 @@ def remeasure(ws: Workspace, name: str, face: Sequence[float] | None = None) -> 
     d = pdir(ws, name)
     if not (d / "master.png").exists() or not (d / "sheet.png").exists():
         raise FoundryError(f"personas/{name} has no master.png and sheet.png; run --pick first")
-    face = list(face or st.get("face_box") or DEFAULT_FACE)
+    face = check_face_box(face or st.get("face_box") or DEFAULT_FACE)
     st["face_box"] = face
-    if st["state"] == "locked":  # new numbers must be approved again before specs use them
-        (d / "pack.json").unlink(missing_ok=True)
+    if st["state"] == "locked":
+        active = pieces_using(ws, name)
+        if active:
+            raise FoundryError(f"personas/{name} is used by pieces that are approved or building "
+                               f"({', '.join(active)}); ship or drop them before re-measuring this creator")
+        # pack.json stays until a new --approve replaces it, so specs keep working in between
     return _gate(ws, name, st, face)
+
+
+def pieces_using(ws: Workspace, name: str) -> list[str]:
+    from .piece import Piece  # local import: piece imports workspace only, cast is imported by spec
+    out = []
+    for p in Piece.all(ws):
+        st = p.status
+        spec = read_json(p.rel("spec.json")) or {}
+        if spec.get("creator") == name and st["state"] in ACTIVE_PIECE_STATES:
+            out.append(p.ref)
+    return out
 
 
 def pick(ws: Workspace, name: str, candidate: str, face: Sequence[float] | None = None, provider=None) -> dict[str, Any]:
     human_only("cast --pick")
     check_name(candidate, CANDIDATE_RE, "candidate")
     st = state(ws, name)
-    if st["state"] not in ("candidates", "blocked", "sheet_measured"):
+    if st["state"] not in ("candidates", "blocked", "sheet_measured", "picking"):
         raise FoundryError(f"personas/{name} is '{st['state']}'; run `foundry cast {name} --brief ...` first")
     d = pdir(ws, name)
     src = d / "candidates" / f"{candidate}.png"
@@ -191,7 +220,7 @@ def pick(ws: Workspace, name: str, candidate: str, face: Sequence[float] | None 
         raise FoundryError(f"no candidate {candidate} in personas/{name}/candidates")
     st["touches"] = st.get("touches", 0) + (0 if st["state"] == "blocked" and st.get("master_from") == candidate else 1)
     shutil.copyfile(src, d / "master.png")
-    face = list(face or DEFAULT_FACE)
+    face = check_face_box(face or DEFAULT_FACE)
     master_m = skin.measure_face(d / "master.png", face)
     if master_m is None:
         raise FoundryError(f"no measurable skin in the centre of the face box {face}; pass --face x0,y0,x1,y1")
@@ -200,9 +229,12 @@ def pick(ws: Workspace, name: str, candidate: str, face: Sequence[float] | None 
     (d / "prompts/sheet.txt").write_text(prompt)
     provider = provider or get_image_provider(ws.image, str(ws.root / ".foundry"))
     st["calls"].append({"op": "edit", "n": 1, "refs": ["master.png"], "at": now()})
-    st.update(master_from=candidate, face_box=face)
+    st.update(master_from=candidate, face_box=face, state="picking", blocked_gate=None)
+    (d / "measure.json").unlink(missing_ok=True)  # a failed sheet call must not leave an old measurement to approve
+    (d / "sheet.png").unlink(missing_ok=True)
     _save(ws, name, st)
-    save_png(provider.edit(prompt, [d / "master.png"], n=1, size="1536x1024")[0], d / "sheet.png")
+    tmp = save_png(provider.edit(prompt, [d / "master.png"], n=1, size=media.SHEET_IMAGE_SIZE)[0], d / ".sheet.tmp.png")
+    tmp.replace(d / "sheet.png")
 
     return _gate(ws, name, st, face)
 
@@ -213,11 +245,21 @@ def approve(ws: Workspace, name: str, story: str | None = None, wardrobe: str | 
     st = state(ws, name)
     d = pdir(ws, name)
     m = read_json(d / "measure.json")
+    if not m or not (d / "master.png").exists() or not (d / "sheet.png").exists():
+        raise FoundryError(f"personas/{name} has no measured sheet; run --pick (or --remeasure) first")
+    current = {"master_sha256": sha256_file(d / "master.png"), "sheet_sha256": sha256_file(d / "sheet.png")}
+    if m.get("images") != current:
+        raise FoundryError(f"personas/{name}: master.png or sheet.png changed since they were measured; run "
+                           f"`foundry cast {name} --remeasure` first")
     override = None
     if st["state"] == "blocked" and st.get("blocked_gate") == "sheet_unmeasurable" and m and m.get("gate") == "sheet_unmeasurable":
         if not (visual_check or "").strip():
             raise FoundryError(f"the sheet could not be measured; look at personas/{name}/sheet.png and approve with "
                                f"--visual-check \"what you checked\"")
+        if any(x.get("master_sha256") == current["master_sha256"] and x.get("sheet_sha256") == current["sheet_sha256"]
+               for x in st.get("drift_seen", [])):
+            raise FoundryError("this master and sheet already measured as drift; a different face box cannot turn "
+                               "that into a visual approval. Regenerate the sheet with --pick")
         override = {"gate": "sheet_unmeasurable", "note": visual_check.strip(), "at": now()}
     elif visual_check:
         raise FoundryError("--visual-check only applies to a sheet that could not be measured; a measured drift "

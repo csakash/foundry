@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from . import result
-from .skin import Box, measure
+from .skin import Box, crop, load_rgb, measure_array
 
 
 def expand(box: Box, k: float = 1.0) -> list[float]:
@@ -20,13 +20,16 @@ def expand(box: Box, k: float = 1.0) -> list[float]:
             min(1.0, box[3] + h * k / 2)]
 
 
-def _series(frames: Sequence[str | Path], box: Box | None) -> list[dict[str, Any]] | str:
-    out = []
+def _series(frames: Sequence[str | Path], regions: dict[str, Box | None]) -> dict[str, list[dict[str, Any]] | str]:
+    """Measure every region of every frame, decoding each frame once."""
+    out: dict[str, list[dict[str, Any]] | str] = {name: [] for name in regions}
     for f in frames:
-        m = measure(f, box)
-        if m is None:
-            return Path(f).name
-        out.append({"frame": Path(f).name, **m})
+        a = load_rgb(f)
+        for name, box in regions.items():
+            if isinstance(out[name], str):
+                continue
+            m = measure_array(crop(a, box))
+            out[name] = Path(f).name if m is None else [*out[name], {"frame": Path(f).name, **m}]
     return out
 
 
@@ -39,8 +42,9 @@ def check(frames: Sequence[str | Path], max_lum: float, max_rb: float = 12.0,
         regions["face"] = expand(face_box, 1.0)
     measures: dict[str, Any] = {"limit_lum": max_lum, "limit_rb": max_rb}
     ok = True
+    measured = _series(frames, regions)
     for name, box in regions.items():
-        series = _series(frames, box)
+        series = measured[name]
         if isinstance(series, str):
             return result(False, {"frame": series, "region": name},
                           f"No measurable skin in {series} ({name} region); the subject left the frame.")

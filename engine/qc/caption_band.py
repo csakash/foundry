@@ -9,6 +9,8 @@ from typing import Any, Sequence
 
 from . import result
 
+SAFE_DEFAULT = {"top_pct": 11, "bottom_pct": 71}
+
 
 def _overlap(a: Sequence[float], b: Sequence[float]) -> float:
     w = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
@@ -18,7 +20,8 @@ def _overlap(a: Sequence[float], b: Sequence[float]) -> float:
 
 
 def check(caption_box: Sequence[float], face_box: Sequence[float] | None,
-          top_pct: float = 11, bottom_pct: float = 71, side_margin: float = 0.10) -> dict[str, Any]:
+          top_pct: float = SAFE_DEFAULT["top_pct"], bottom_pct: float = SAFE_DEFAULT["bottom_pct"],
+          side_margin: float = 0.10) -> dict[str, Any]:
     x0, y0, x1, y1 = caption_box
     fails = []
     if y0 < top_pct / 100 - 0.005:

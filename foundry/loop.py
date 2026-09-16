@@ -16,6 +16,7 @@ Invariants:
 """
 from __future__ import annotations
 
+import os
 import shutil
 import urllib.parse
 import urllib.request
@@ -30,7 +31,7 @@ from . import cast, media
 from .imaging import capture_treatment, save_png
 from .piece import APPROVED, STAGES, Piece
 from .spec import first_frame_prompt
-from .util import SHOT_RE, FoundryError, check_name, inside, now, read_json, write_json
+from .util import AGENT_ENV, SHOT_RE, FoundryError, check_face_box, check_name, inside, now, read_json, write_json
 from .workspace import Workspace
 
 MAX_DOWNLOAD = 500 * 1024 * 1024
@@ -45,9 +46,7 @@ def record_region(piece: Piece, image: str, face: Sequence[float]) -> dict[str, 
     p = inside(piece.path, image, "image")
     if not p.exists():
         raise FoundryError(f"no image {image} in {piece.ref}")
-    x0, y0, x1, y1 = (float(v) for v in face)
-    if not (0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1):
-        raise FoundryError("face box must be x0,y0,x1,y1 fractions with x0<x1 and y0<y1")
+    x0, y0, x1, y1 = check_face_box(face)
     key = str(p.relative_to(piece.path))
     r = regions(piece)
     if key in r:
@@ -147,8 +146,8 @@ def run_qc(ws: Workspace, piece: Piece, stage: str) -> dict[str, Any]:
                           "guidance": "" if size_ok else f"Render the cut at {media.OUTPUT_SIZE[0]}x{media.OUTPUT_SIZE[1]}."}
         cap = read_json(piece.rel("cut", "caption.json"))
         box, _ = face_box(piece, f"clips/{spec['shots'][0]['id']}/frames/f_0001.png")
-        cs = q.get("caption_safe", {})
-        checks["caption_band"] = caption_band.check(cap["box"], box, cs.get("top_pct", 11), cs.get("bottom_pct", 71))
+        cs = {**caption_band.SAFE_DEFAULT, **q.get("caption_safe", {})}
+        checks["caption_band"] = caption_band.check(cap["box"], box, cs["top_pct"], cs["bottom_pct"])
         checks["loudness"] = loudness.check(final, spec["audio"]["kind"])
         checks["text_lint"] = text_lint.lint(spec["captions"]["text"], lock.get("charter"))  # the charter as approved
 
@@ -191,6 +190,26 @@ def _attempts(provider) -> float:
     return float(max(1, getattr(provider, "last_attempts", 1) or 1))
 
 
+def paid_image_edit(piece: Piece, provider, prompt: str, refs: list[Path], size: str, note: str) -> bytes | None:
+    """The one billing path for an image call: lint, reserve, call, settle with the attempts sent.
+
+    Returns None on a safety refusal (the caller decides whether that blocks); any other error is settled
+    as failed and re-raised."""
+    lint = safety_lint.lint(prompt)
+    hits = ", ".join(h["phrase"] for h in lint["measures"]["hits"])
+    eid = piece.reserve("image_call", 1.0, note + (f" (safety rewrites: {hits})" if hits else ""))
+    try:
+        out = provider.edit(lint["rewritten"], refs, n=1, size=size)[0]
+    except ImageRefused:
+        piece.settle(eid, ok=False, actual=_attempts(provider))
+        return None
+    except Exception:
+        piece.settle(eid, ok=False, actual=_attempts(provider))
+        raise
+    piece.settle(eid, ok=True, actual=_attempts(provider))
+    return out
+
+
 # ---------------------------------------------------------------- regeneration
 def regen_frame(ws: Workspace, piece: Piece, provider=None) -> dict[str, Any]:
     piece.require("building")
@@ -198,17 +217,12 @@ def regen_frame(ws: Workspace, piece: Piece, provider=None) -> dict[str, Any]:
     spec = piece.spec
     pdir = cast.pdir(ws, spec["creator"])
     prompt = safety_lint.lint(first_frame_prompt(ws, spec, guidance=r["guidance"]))["rewritten"]
-    eid = piece.reserve("image_call", 1.0, "frames regeneration")
     provider = provider or get_image_provider(ws.image, str(ws.root / ".foundry"))
-    try:
-        data = provider.edit(prompt, [pdir / "master.png", pdir / "sheet.png"], n=1, size="1024x1536")[0]
-    except ImageRefused as e:
-        piece.settle(eid, ok=False, actual=_attempts(provider))
-        raise piece.block("frames.safety_refused", str(e))
-    except Exception:
-        piece.settle(eid, ok=False, actual=_attempts(provider))
-        raise
-    piece.settle(eid, ok=True, actual=_attempts(provider))
+    data = paid_image_edit(piece, provider, prompt, [pdir / "master.png", pdir / "sheet.png"],
+                           media.FRAME_IMAGE_SIZE, "frames regeneration")
+    if data is None:
+        raise piece.block("frames.safety_refused", "the image provider refused the regenerated first frame on "
+                                                   "safety grounds after its retries")
     cycle = piece.bump_cycle("frames")
     hist = piece.rel("frames", "history")
     hist.mkdir(exist_ok=True)
@@ -236,6 +250,8 @@ def ingest_clip(ws: Workspace, piece: Piece, mp4: Path, job: str, shot: str = "s
     if shot not in {s["id"] for s in spec["shots"]}:
         raise FoundryError(f"unknown shot {shot}")
     src = Path(mp4).resolve()
+    if os.environ.get(AGENT_ENV):  # the build agent may only ingest what foundry fetch downloaded
+        inside(piece.rel("incoming"), src, "clip")
     if not src.exists():
         raise FoundryError(f"no file {mp4}")
     if piece.rel("clips").resolve() in src.parents:
@@ -250,6 +266,7 @@ def ingest_clip(ws: Workspace, piece: Piece, mp4: Path, job: str, shot: str = "s
     regeneration = dst.exists()
     if regeneration:
         begin_regeneration(piece, "clip")
+    piece.consume("video_credits", job, check_only=True)  # refuse an unpaid clip before touching any file
     stage_dir = piece.rel("clips", f".staging-{shot}")
     if stage_dir.exists():
         shutil.rmtree(stage_dir)
@@ -262,7 +279,6 @@ def ingest_clip(ws: Workspace, piece: Piece, mp4: Path, job: str, shot: str = "s
     except Exception:
         shutil.rmtree(stage_dir, ignore_errors=True)
         raise
-    piece.consume("video_credits", job, check_only=True)
     cycle = piece.bump_cycle("clip") if regeneration else piece.status["cycles"]["clip"]
     invalidate(piece, ["clip", "cut"], [f"clips/{shot}/frames/f_0001.png"])
     if regeneration:
@@ -303,7 +319,7 @@ def _check_url(url: str, hosts: Sequence[str] = ()) -> str:
         raise FoundryError(f"cannot resolve {u.hostname}")
     for a in addrs:
         ip = ipaddress.ip_address(a.split("%")[0])
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+        if not ip.is_global or ip.is_multicast:
             raise FoundryError(f"{u.hostname} resolves to a non-public address")
     return url
 
@@ -341,7 +357,7 @@ def download_clip(ws: Workspace, piece: Piece, url: str, job: str, shot: str = "
             while chunk := r.read(1 << 20):
                 total += len(chunk)
                 if total > MAX_DOWNLOAD:
-                    raise FoundryError("download exceeds 500 MB")
+                    raise FoundryError(f"download exceeds {MAX_DOWNLOAD // (1024 * 1024)} MB")
                 f.write(chunk)
         part.replace(dst)
     finally:

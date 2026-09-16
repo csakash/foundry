@@ -15,13 +15,14 @@ import shutil
 import subprocess
 from typing import Any
 
-from .piece import Piece
+from .piece import LOCK, Piece
 from .util import AGENT_ENV, FoundryError, human_only, read_json
 from .workspace import Workspace
 
 PERMISSION_MODE = {"interactive": "default", "bypass": "dontAsk"}  # dontAsk: anything not allowlisted is denied
 VIDEO_TOOLS = ["balance", "models_explore", "media_upload", "media_confirm", "generate_video", "jobs_wait"]
 BUILD_TIMEOUT_S = 3 * 3600
+MAX_FIX_CYCLES = 10
 MODES = ["interactive", "bypass", "autonomous"]
 SERVER_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 HUMAN_STEPS = ["init", "cast", "new", "set", "sheet", "approve", "build", "ship", "posted", "reap"]
@@ -31,6 +32,7 @@ def prompt(ws: Workspace, piece: Piece, cycles: int) -> str:
     video = ws.config["providers"]["video"]
     ref = piece.ref
     d = piece.path.relative_to(ws.root)
+    shots = ", ".join(sh["id"] for sh in (read_json(piece.rel("spec.json")) or {}).get("shots", [])) or "shot01"
     return "\n".join([
         f"You are building the Foundry piece {ref} in this workspace. Its spec is approved; do not re-scope it.",
         f"Read {d}/SPEC.md first. Every step below is a `foundry` command; add --json and act on what it prints.",
@@ -41,15 +43,15 @@ def prompt(ws: Workspace, piece: Piece, cycles: int) -> str:
         f"2. Look at the hands. Record `foundry verdict {ref} --check hands --stage frames --pass` or `--fail --note \"what is wrong\"`.",
         f"3. `foundry qc {ref} --stage frames`. If red and not blocked: `foundry regen-frame {ref}`, then repeat 1-3.",
         "",
-        "STAGE CLIP",
+        "STAGE CLIP (repeat for each shot: " + shots + ")",
         f"4. `foundry prompt {ref} --kind motion` prints the motion prompt and the generate_video params.",
         "5. Use the video MCP: models_explore once for the start-image media role and durations; media_upload for approved.png;",
         f"   `foundry upload {ref} --url <upload_url>`; media_confirm; generate_video with get_cost true (model {video['model']},",
         f"   aspect {video['aspect']}, no audio). A preset recommendation instead of a cost: re-send with declined_preset_id.",
         f"6. `foundry reserve {ref} --unit video_credits --amount <cost>` (BLOCKED means stop). generate_video for real.",
         f"   jobs_wait until terminal. `foundry settle {ref} <entry> --ok --ref <job_id>` (or --failed if the job failed).",
-        f"7. `foundry fetch {ref} --url <result url> --job <job_id>`. Look at clips/shot01/frames/. Record the hands verdict",
-        f"   for stage clip. `foundry qc {ref} --stage clip`. If red and not blocked: repeat 4-7 with",
+        f"7. `foundry fetch {ref} --url <result url> --job <job_id> --shot <shot id>`. Look at clips/<shot id>/frames/.",
+        f"   Record the hands verdict for stage clip. `foundry qc {ref} --stage clip`. If red and not blocked: repeat 4-7 with",
         "   `foundry prompt --kind motion --guidance-from clip`.",
         "   Never resubmit a generation whose outcome is unknown after a timeout; reuse the job id.",
         "",
@@ -89,9 +91,11 @@ def build(ws: Workspace, piece: Piece, mode: str, cycles: int | None = None, dry
         raise FoundryError("autonomous mode would post without a human; posting is not implemented in v1. Use --mode bypass.")
     if piece.state not in ("approved", "building"):
         raise FoundryError(f"{piece.ref} is '{piece.state}'; build needs an approved sheet (foundry approve)")
-    lock = read_json(piece.rel("approved.lock.json")) or {}
+    lock = read_json(piece.rel(LOCK)) or {}  # read, not verified: a dry run must never block
     if not lock:
         raise FoundryError(f"{piece.ref} has no approval lock; approve the sheet first")
+    if cycles is not None and not 0 <= cycles <= MAX_FIX_CYCLES:
+        raise FoundryError(f"--fix-cycles must be between 0 and {MAX_FIX_CYCLES}")
     if cycles is not None and cycles != lock["fix_cycles"]:
         if piece.state != "approved":
             raise FoundryError("the retry budget is fixed once the build has started")

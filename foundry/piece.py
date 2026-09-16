@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import json
 import math
 import uuid
 from pathlib import Path
@@ -107,41 +108,32 @@ class Piece:
 
     def set_state(self, state: str, **fields: Any) -> dict[str, Any]:
         with self.exclusive():
-            return self._set_state(state, **fields)
-
-    def _set_state(self, state: str, **fields: Any) -> dict[str, Any]:
-        assert state in STATES, state
-        st = self.status
-        st["state"] = state
-        st.update(fields)
-        st["history"].append({"state": state, "at": now(), **fields})
-        self.save_status(st)
-        if (self.path / "spec.json").exists():  # SPEC.md carries the state line; keep it current
-            from .spec import render_md
-            (self.path / "SPEC.md").write_text(render_md(self.spec, self))
-        return st
+            assert state in STATES, state
+            st = self.status
+            st["state"] = state
+            st.update(fields)
+            st["history"].append({"state": state, "at": now(), **fields})
+            self.save_status(st)
+            if (self.path / "spec.json").exists():  # SPEC.md carries the state line; keep it current
+                from .spec import render_md
+                (self.path / "SPEC.md").write_text(render_md(self.spec, self))
+            return st
 
     def touch(self, what: str) -> int:
-        with self.exclusive():
-            return self._touch(what)
-
-    def _touch(self, what: str) -> int:
         """Count a human decision. Acceptance criterion 12 reads this counter."""
-        st = self.status
-        st["touches"] = int(st.get("touches", 0)) + 1
-        st.setdefault("touch_log", []).append({"what": what, "at": now()})
-        self.save_status(st)
-        return st["touches"]
+        with self.exclusive():
+            st = self.status
+            st["touches"] = int(st.get("touches", 0)) + 1
+            st.setdefault("touch_log", []).append({"what": what, "at": now()})
+            self.save_status(st)
+            return st["touches"]
 
     def bump_cycle(self, stage: str) -> int:
         with self.exclusive():
-            return self._bump_cycle(stage)
-
-    def _bump_cycle(self, stage: str) -> int:
-        st = self.status
-        st["cycles"][stage] = int(st["cycles"].get(stage, 0)) + 1
-        self.save_status(st)
-        return st["cycles"][stage]
+            st = self.status
+            st["cycles"][stage] = int(st["cycles"].get(stage, 0)) + 1
+            self.save_status(st)
+            return st["cycles"][stage]
 
     def block(self, gate: str, evidence: str) -> Blocked:
         self.set_state("blocked", blocked_gate=gate, blocked_evidence=evidence)
@@ -163,7 +155,7 @@ class Piece:
         (self.path / "SPEC.md").write_text(render_md(spec, self))
 
     def spec_hash(self) -> str:
-        return hashlib.sha256((self.path / "spec.json").read_bytes()).hexdigest()
+        return sha256_file(self.path / "spec.json")
 
     def locked_inputs(self) -> dict[str, str]:
         """This piece's own inputs besides spec.json, hashed at approval: the creator's identity files, the
@@ -174,16 +166,32 @@ class Piece:
         spec = self.spec
         paths = {}
         pdir = self.ws.dir("personas") / spec["creator"]
-        for name in ("master.png", "sheet.png", "pack.json"):
+        for name in ("master.png", "sheet.png"):
             paths[f"persona/{name}"] = pdir / name
+        pack_path = pdir / "pack.json"
         for i, a in enumerate(spec["assets"]):
             paths[f"asset/{i}"] = inside(self.ws.root, a["path"], "product clip")
         if spec["audio"].get("path") and spec["audio"].get("kind") == "trending":
             paths["audio"] = inside(self.ws.root, spec["audio"]["path"], "audio track")
-        missing = [k for k, v in paths.items() if not v.exists()]
+        missing = [k for k, v in paths.items() if not v.exists()] + ([] if pack_path.exists() else ["persona/pack.json"])
         if missing:
             raise FoundryError("approval needs these inputs, which are missing: " + ", ".join(missing))
-        return {k: sha256_file(v) for k, v in paths.items()}
+        hashes = {k: self._cached_hash(v) for k, v in paths.items()}
+        # the pack is hashed by the fields a build reads, not its bytes: re-approving the same numbers
+        # (new locked_at, new touch count) must not block pieces already approved against them
+        pack = read_json(pack_path)
+        material = {k: pack.get(k) for k in ("qc_targets", "face_box", "skin_rule", "wardrobe_default", "camera_rule")}
+        hashes["persona/pack"] = hashlib.sha256(json.dumps(material, sort_keys=True).encode()).hexdigest()
+        return hashes
+
+    def _cached_hash(self, path: Path) -> str:
+        """sha256 of a file, re-read only when its size or mtime changed (product clips can be hundreds of MB)."""
+        st = path.stat()
+        key = (str(path), st.st_size, st.st_mtime_ns)
+        cache = self.__dict__.setdefault("_hashes", {})
+        if key not in cache:
+            cache[key] = sha256_file(path)
+        return cache[key]
 
     def write_lock(self, fix_cycles: int) -> dict[str, Any]:
         spec = self.spec
@@ -237,71 +245,62 @@ class Piece:
                          if e["unit"] == unit and e["state"] in COUNTED), 2)
 
     def reserve(self, unit: str, amount: float, note: str) -> str:
-        with self.exclusive():
-            return self._reserve(unit, amount, note)
-
-    def _reserve(self, unit: str, amount: float, note: str) -> str:
         """Write the spend BEFORE the call. After approval, refuses (BLOCKED budget.<unit>) past the ceiling.
 
         The ceiling covers spend since approval: sheet renders before approval are the price of deciding.
         """
-        if amount <= 0:
-            raise FoundryError("reserve amount must be positive")
-        inv = self.invoice
-        floor = (read_json(self.path / LOCK) or {}).get("min_video_reservation")
-        if unit == "video_credits" and floor and amount < floor:
-            raise FoundryError(f"a clip costs at least {floor:g} video credits for this spec; reserve the preflight cost")
-        if inv.get("frozen") and unit in inv["ceilings"]:
-            since = self.spent(unit) - float(inv.get("baseline", {}).get(unit, 0))
-            if since + amount > inv["ceilings"][unit] + 1e-9:
-                raise self.block(f"budget.{unit}", f"{note} needs {amount} {unit}; {since:g} spent since approval "
-                                                   f"of ceiling {inv['ceilings'][unit]:g}")
-        eid = f"e{len(inv['entries']) + 1:03d}-{uuid.uuid4().hex[:6]}"
-        inv["entries"].append({"id": eid, "unit": unit, "amount": amount, "note": note,
-                               "state": "reserved", "at": now()})
-        write_json(self.path / "invoice.json", inv)
-        return eid
+        with self.exclusive():
+            if amount <= 0:
+                raise FoundryError("reserve amount must be positive")
+            inv = self.invoice
+            floor = (read_json(self.path / LOCK) or {}).get("min_video_reservation")
+            if unit == "video_credits" and floor and amount < floor:
+                raise FoundryError(f"a clip costs at least {floor:g} video credits for this spec; reserve the preflight cost")
+            if inv.get("frozen") and unit in inv["ceilings"]:
+                since = self.spent(unit) - float(inv.get("baseline", {}).get(unit, 0))
+                if since + amount > inv["ceilings"][unit] + 1e-9:
+                    raise self.block(f"budget.{unit}", f"{note} needs {amount} {unit}; {since:g} spent since approval "
+                                                       f"of ceiling {inv['ceilings'][unit]:g}")
+            eid = f"e{len(inv['entries']) + 1:03d}-{uuid.uuid4().hex[:6]}"
+            inv["entries"].append({"id": eid, "unit": unit, "amount": amount, "note": note,
+                                   "state": "reserved", "at": now()})
+            write_json(self.path / "invoice.json", inv)
+            return eid
 
     def settle(self, eid: str, ok: bool, actual: float | None = None, ref: str | None = None) -> dict[str, Any]:
-        with self.exclusive():
-            return self._settle(eid, ok, actual, ref)
-
-    def _settle(self, eid: str, ok: bool, actual: float | None = None, ref: str | None = None) -> dict[str, Any]:
         """One-way: reserved -> settled | failed. Never lowers a recorded charge."""
-        inv = self.invoice
-        e = next((x for x in inv["entries"] if x["id"] == eid), None)
-        if e is None:
-            raise FoundryError(f"no invoice entry {eid}")
-        if e["state"] != "reserved":
-            raise FoundryError(f"invoice entry {eid} is already {e['state']}")
-        if actual is not None and actual < e["amount"]:
-            raise FoundryError(f"actual {actual} is lower than the reserved {e['amount']}; charges are never lowered")
-        e["state"] = "settled" if ok else "failed"
-        if actual is not None:
-            e["amount"] = actual
-        if ref:
-            e["ref"] = ref
-        e["settled_at"] = now()
-        write_json(self.path / "invoice.json", inv)
-        return e
+        with self.exclusive():
+            inv = self.invoice
+            e = next((x for x in inv["entries"] if x["id"] == eid), None)
+            if e is None:
+                raise FoundryError(f"no invoice entry {eid}")
+            if e["state"] != "reserved":
+                raise FoundryError(f"invoice entry {eid} is already {e['state']}")
+            if actual is not None and actual < e["amount"]:
+                raise FoundryError(f"actual {actual} is lower than the reserved {e['amount']}; charges are never lowered")
+            e["state"] = "settled" if ok else "failed"
+            if actual is not None:
+                e["amount"] = actual
+            if ref:
+                e["ref"] = ref
+            e["settled_at"] = now()
+            write_json(self.path / "invoice.json", inv)
+            return e
 
     def consume(self, unit: str, ref: str, check_only: bool = False) -> dict[str, Any]:
-        with self.exclusive():
-            return self._consume(unit, ref, check_only)
-
-    def _consume(self, unit: str, ref: str, check_only: bool = False) -> dict[str, Any]:
         """Tie a generated asset to the settled reservation that paid for it, once."""
-        inv = self.invoice
-        e = next((x for x in inv["entries"] if x["unit"] == unit and x.get("ref") == ref
-                  and x["state"] == "settled" and not x.get("consumed")), None)
-        if e is None:
-            raise FoundryError(f"no settled, unused {unit} reservation with ref {ref!r}; "
-                               f"reserve before generating and settle with --ref {ref}")
-        if check_only:
+        with self.exclusive():
+            inv = self.invoice
+            e = next((x for x in inv["entries"] if x["unit"] == unit and x.get("ref") == ref
+                      and x["state"] == "settled" and not x.get("consumed")), None)
+            if e is None:
+                raise FoundryError(f"no settled, unused {unit} reservation with ref {ref!r}; "
+                                   f"reserve before generating and settle with --ref {ref}")
+            if check_only:
+                return e
+            e["consumed"] = now()
+            write_json(self.path / "invoice.json", inv)
             return e
-        e["consumed"] = now()
-        write_json(self.path / "invoice.json", inv)
-        return e
 
 
 def min_video_reservation(spec: dict[str, Any]) -> float:

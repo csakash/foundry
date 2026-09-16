@@ -86,7 +86,7 @@ def test_cli_dispatches_remeasure_upload_and_repeat_init(ws, monkeypatch):
     locked(ws)
     code, res = run_cli(ws.root, "cast", "nova", "--remeasure")
     assert code == 0 and res["state"] == "sheet_measured"
-    assert not (ws.dir("personas") / "nova/pack.json").exists()  # re-measured numbers need approval again
+    assert (ws.dir("personas") / "nova/pack.json").exists()  # the old pack serves specs until a new --approve
 
     Piece.create(ws, "@t", "up")
     seen = {}
@@ -169,7 +169,7 @@ def test_drift_fails_when_the_subject_leaves_the_frame(tmp_path):
 
 
 # ---------------------------------------------------------------- sheet + cut
-def test_sheet_call_crash_settles_failed_and_reraises(ws):
+def test_paid_image_edit_crash_settles_failed_and_reraises(ws):
     p = Piece.create(ws, "@t", "crash")
 
     class Flaky:
@@ -178,10 +178,10 @@ def test_sheet_call_crash_settles_failed_and_reraises(ws):
         def edit(self, *a, **k):
             raise ConnectionError("reset by peer")
     with pytest.raises(ConnectionError):
-        sheet._call(p, Flaky(), "a portrait, sheer blouse", [], "1024x1536", "sheet candidate c1")
+        loop.paid_image_edit(p, Flaky(), "a portrait, sheer blouse", [], "1024x1536", "sheet candidate c1")
     e = p.invoice["entries"][-1]
     assert e["state"] == "failed" and e["amount"] == 2.0 and "safety rewrites: sheer" in e["note"]
-    assert sheet._call(p, FakeImages(), "a portrait", [], "1024x1536", "c2")[:4] == b"\x89PNG"
+    assert loop.paid_image_edit(p, FakeImages(), "a portrait", [], "1024x1536", "c2")[:4] == b"\x89PNG"
     assert p.invoice["entries"][-1]["state"] == "settled"
 
 

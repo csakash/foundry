@@ -29,7 +29,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "defaults": {"mode": "bypass", "fix_cycles": 2, "credit_ceiling_multiplier": 3, "max_duration_s": 60,
                  "sheet_candidates": 3},
-    "cast": {"max_sheet_lum_delta": 12, "max_panel_spread": 45},
+    "cast": {"max_sheet_lum_delta": 12, "max_sheet_rb_delta": 16, "max_sheet_sat_delta": 11, "max_panel_spread": 45},
     "publish": {"kind": "buffer", "channels": {}},
 }
 

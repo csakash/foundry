@@ -11,7 +11,8 @@ from . import result
 
 def probe(path: str | Path) -> dict[str, Any]:
     out = subprocess.run(
-        ["ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)],
+        ["ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe", "-print_format", "json", "-show_format",
+         "-show_streams", str(path)],
         capture_output=True, text=True, check=True).stdout
     data = json.loads(out)
     video = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), {})

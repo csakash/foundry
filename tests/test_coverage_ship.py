@@ -205,10 +205,15 @@ def test_ingest_clip_refuses_bad_inputs_before_spending(ws, tmp_path):
     with pytest.raises(FoundryError, match="no video stream"):
         loop.ingest_clip(ws, p, audio, job="j")
     short = video(tmp_path / "short.mp4", seconds=0.2)
+    with pytest.raises(FoundryError, match="no settled, unused video_credits reservation"):
+        loop.ingest_clip(ws, p, short, job="j")  # an unpaid clip is refused before any file is touched
+    assert not p.rel("clips", ".staging-shot01").exists()
+    eid = p.reserve("video_credits", 32.5, "paid")
+    p.settle(eid, ok=True, ref="j")
     with pytest.raises(FoundryError, match="too short"):
         loop.ingest_clip(ws, p, short, job="j")
     assert not p.rel("clips", ".staging-shot01").exists() and not p.rel("clips", "shot01.mp4").exists()
-    assert p.invoice["entries"] == [] and p.status["cycles"]["clip"] == 0
+    assert [e.get("consumed") for e in p.invoice["entries"]] == [None] and p.status["cycles"]["clip"] == 0
 
 
 def test_run_qc_refuses_out_of_order_stages(ws):
@@ -477,7 +482,7 @@ def test_doctor_checks_the_image_model_when_online(ws, monkeypatch):
         def check_model(self):
             return False, "HTTP 404: model_not_found"
     monkeypatch.setattr(ops, "get_image_provider", lambda *a, **k: Model())
-    monkeypatch.setattr(ops.services, "list_mcp", lambda: [{"name": "higgsfield", "url": "https://mcp.higgsfield.ai/mcp",
+    monkeypatch.setattr(ops.services, "list_mcp", lambda **kw: [{"name": "higgsfield", "url": "https://mcp.higgsfield.ai/mcp",
                                                              "status": "connected", "raw": "Connected"}])
     res = ops.doctor(workspace.load(ws.root), offline=False)
     rows = {r["check"]: r for r in res["checks"]}

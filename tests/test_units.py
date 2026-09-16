@@ -517,7 +517,8 @@ def test_remeasure_a_locked_pack_requires_approval_again(ws):
     cast.approve(ws, "relock")
     assert (ws.dir("personas") / "relock/pack.json").exists()
     assert cast.remeasure(ws, "relock", face=(0.3, 0.2, 0.7, 0.6))["state"] == "sheet_measured"
-    assert not (ws.dir("personas") / "relock/pack.json").exists()
+    assert (ws.dir("personas") / "relock/pack.json").exists()  # kept until the new numbers are approved
+    assert cast.approve(ws, "relock")["face_box"] == [0.3, 0.2, 0.7, 0.6]
 
 
 def test_specs_refuse_packs_measured_the_old_way(ws):
