@@ -54,3 +54,10 @@ def tmp(tmp_path: Path) -> Path:
 @pytest.fixture(autouse=True)
 def _not_the_agent(monkeypatch):
     monkeypatch.delenv("FOUNDRY_AGENT", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_higgsfield_key(monkeypatch):
+    """Tests never reach the real Higgsfield API: a developer's HF_KEY must not switch the route to api."""
+    for k in ("HF_KEY", "HF_API_KEY", "HF_API_SECRET"):
+        monkeypatch.delenv(k, raising=False)

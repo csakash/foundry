@@ -173,8 +173,9 @@ def test_resolver_complete_sets_budget_and_state(ws):
     r = spec_mod.set_values(ws, p, ["hook.line=ok", "assets.0.path=clip.mp4"])
     assert r["complete"] and p.state == "specced"
     b = p.spec["budget"]
-    assert b["planned"] == {"image_call": 4.0, "video_credits": 32.5}
-    assert b["ceiling"] == {"image_call": 12.0, "video_credits": 97.5}
+    # both video routes are planned: MCP credits and API dollars (5 s at 720p = 108,000 tokens = $2.32)
+    assert b["planned"] == {"image_call": 4.0, "video_credits": 32.5, "video_usd": 2.32}
+    assert b["ceiling"] == {"image_call": 12.0, "video_credits": 97.5, "video_usd": 6.96}
     assert p.spec["structure"][-1]["t"] == [5, 25]
     md = (p.path / "SPEC.md").read_text()
     assert md.count("**unresolved**") == 0 and "State: **specced**" in md

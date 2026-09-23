@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased] - Higgsfield API route
+
+When the Higgsfield API is available Foundry now always uses it for video; otherwise it uses the Higgsfield MCP, as before. See SPEC.md "Higgsfield API route".
+
+### Added
+
+- `foundry route [piece]` says which video route a build takes now and why. "Available" is a live, free check against Higgsfield's estimate endpoint, never cached.
+- `foundry generate <piece> --shot <id>` runs the whole API path in one command: price, reserve, upload the approved frame, submit, wait, download, ingest. The build agent never holds the key or a generate tool, which closes the "tie video generations to reservations" gap for this route.
+- A stdlib Higgsfield client (`engine/providers/higgsfield_api.py`). Credentials go only to the API host; presigned uploads and downloads never see them; redirects on authenticated calls are refused. A submit is never retried: a timeout or 5xx is recorded as spent and not resubmitted. An interrupted generate resumes the same request.
+- `video_usd` ledger unit. Specs now plan and freeze a ceiling in both currencies, so either route (and a fallback part-way) is capped. `foundry ls` shows both.
+- `foundry doctor`: `Higgsfield API` and `video route` rows; the MCP row is only a note when the API works.
+- `HF_KEY` in `.env.example`; `providers.video.route` (`auto` | `api` | `mcp`, default `auto`).
+
+### Changed
+
+- The build prompt and `/foundry-build` ask `foundry route` per shot. Headless builds need `providers.video.mcp_server` only on the MCP route.
+- A clip can be paid for in either video unit (`ingest-clip`, `fetch`).
+- Pieces approved before this change have no `video_usd` ceiling, so they stay on the MCP route.
+
 ## [1.0.0.0] - 2026-09-17
 
 Foundry Loops: Creator Foundry rebuilt as a loop. Four verbs, one spec per piece, one human gate, and a build loop that never ships red.

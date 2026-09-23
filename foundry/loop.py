@@ -30,7 +30,7 @@ from engine.qc import caption_band, drift, duration, frame0, hands, loudness, sa
 
 from . import cast, media
 from .imaging import capture_treatment, save_png
-from .piece import APPROVED, STAGES, Piece
+from .piece import APPROVED, STAGES, VIDEO_UNITS, Piece
 from .spec import first_frame_prompt
 from .util import AGENT_ENV, SHOT_RE, FoundryError, check_face_box, check_name, inside, now, read_json, write_json
 from .workspace import Workspace
@@ -268,7 +268,7 @@ def ingest_clip(ws: Workspace, piece: Piece, mp4: Path, job: str, shot: str = "s
     regeneration = dst.exists()
     if regeneration:
         begin_regeneration(piece, "clip")
-    piece.consume("video_credits", job, check_only=True)  # refuse an unpaid clip before touching any file
+    piece.consume(VIDEO_UNITS, job, check_only=True)  # refuse an unpaid clip before touching any file
     stage_dir = piece.rel("clips", f".staging-{shot}")
     if stage_dir.exists():
         shutil.rmtree(stage_dir)
@@ -293,7 +293,7 @@ def ingest_clip(ws: Workspace, piece: Piece, mp4: Path, job: str, shot: str = "s
     (stage_dir / f"{shot}.mp4").replace(dst)
     (stage_dir / "frames").replace(piece.rel("clips", shot, "frames"))
     shutil.rmtree(stage_dir, ignore_errors=True)
-    piece.consume("video_credits", job)  # the payment is spent only once the clip is in place
+    piece.consume(VIDEO_UNITS, job)  # the payment is spent only once the clip is in place
     write_json(piece.rel("clips", f"{shot}.json"), {"source": str(src), "job": job, "cycle": cycle, "at": now(),
                                                    "frames": [f.name for f in frames], "probe": info})
     return {"piece": piece.ref, "shot": shot, "cycle": cycle, "frames": len(frames),
@@ -339,6 +339,22 @@ def upload_approved(ws: Workspace, piece: Piece, url: str) -> dict[str, Any]:
     opener, hosts = _opener(ws)
     data = piece.rel(APPROVED).read_bytes()
     req = urllib.request.Request(_check_url(url, hosts), data=data, method="PUT", headers={"Content-Type": "image/png"})
+    with opener.open(req, timeout=120) as r:
+        return {"piece": piece.ref, "uploaded": APPROVED, "bytes": len(data), "http": r.status}
+
+
+def put_presigned(ws: Workspace, piece: Piece, url: str, headers: dict[str, str]) -> dict[str, Any]:
+    """PUT frames/approved.png to a provider's presigned URL with exactly the headers it asked for.
+
+    The Higgsfield API route's upload (foundry.video). Same https/public-host checks as upload_approved;
+    no provider credentials are ever sent here."""
+    piece.require("building")
+    piece.require_pass("frames")
+    if any(k.lower() == "authorization" for k in headers):
+        raise FoundryError("refusing to send an Authorization header to a presigned upload URL")
+    opener, hosts = _opener(ws)
+    data = piece.rel(APPROVED).read_bytes()
+    req = urllib.request.Request(_check_url(url, hosts), data=data, method="PUT", headers=dict(headers))
     with opener.open(req, timeout=120) as r:
         return {"piece": piece.ref, "uploaded": APPROVED, "bytes": len(data), "http": r.status}
 

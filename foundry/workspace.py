@@ -24,8 +24,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # gpt-image-2.5 (the SPEC.md example) returns model_not_found; -sunburst cast Imani (verified 2026-09-16)
         "image": {"kind": "openai-images", "model": "gpt-image-2.5-sunburst", "quality": "high", "rpm_images": 5},
         "vision": {"kind": "agent"},
+        # route: "auto" uses the Higgsfield API when it is available and the MCP otherwise; "api" or "mcp" pins one
+        # (SPEC.md "Higgsfield API route"). model/aspect/mcp_server describe the MCP route; the API route's
+        # endpoint and pricing default in foundry.video.API_DEFAULTS and can be overridden under "api".
         "video": {"kind": "higgsfield-mcp", "model": "seedance_2_5", "resolution": "720p", "aspect": "9:16",
-                  "audio": False, "mcp_server": None},
+                  "audio": False, "mcp_server": None, "route": "auto"},
     },
     "defaults": {"mode": "bypass", "fix_cycles": 2, "credit_ceiling_multiplier": 3, "max_duration_s": 60,
                  "sheet_candidates": 3},

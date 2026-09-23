@@ -16,6 +16,8 @@
 
 ### Tie video generations to reservations at the provider
 
+**Status:** done for the Higgsfield API route (`foundry generate` holds the key and reserves before it submits; the agent has no generate tool). Still open for the MCP fallback route.
+
 **What:** Stop the agent from generating a video without a reservation, or detect it after the fact.
 
 **Why:** `foundry reserve` has a floor (one clip's price) and a ceiling, and a clip is only ingested with its settled reservation, but a `generate_video` call made without reserving leaves no trace in `invoice.json`.

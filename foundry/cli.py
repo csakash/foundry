@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from . import __version__, build as build_mod, cast, cut as cut_mod, loop, ops, sheet, ship as ship_mod, spec as spec_mod
+from . import __version__, build as build_mod, cast, cut as cut_mod, loop, ops, sheet, ship as ship_mod, spec as spec_mod, video as video_mod
 from . import workspace
 from .piece import Piece
 from .util import AGENT_ENV, Blocked, FoundryError, check_face_box, human_only, read_json
@@ -140,6 +140,16 @@ def parser() -> argparse.ArgumentParser:
     up = sub.add_parser("upload", help="PUT frames/approved.png to a presigned https upload URL")
     up.add_argument("piece")
     up.add_argument("--url", required=True)
+    ro = sub.add_parser("route", help="which video route a build takes now: the Higgsfield API or the MCP")
+    ro.add_argument("piece", nargs="?", help="check this piece's frozen budget too")
+    ro.add_argument("--offline", action="store_true", help="skip the live availability check")
+    ge = sub.add_parser("generate", help="API route: price, reserve, upload, submit, wait, download and ingest a clip")
+    ge.add_argument("piece")
+    ge.add_argument("--shot", default="shot01")
+    ge.add_argument("--guidance-from", choices=["clip"], help="add the last clip QC guidance to the motion prompt")
+    ge.add_argument("--wait-s", type=_finite, help="how long this call waits for the result (default 90; re-run resumes)")
+    ge.add_argument("--clear-unknown", action="store_true",
+                    help="human only: after checking the Higgsfield console, allow this shot to be generated again")
     fe = sub.add_parser("fetch", help="download a generated clip over https and ingest it")
     fe.add_argument("piece")
     fe.add_argument("--url", required=True)
@@ -190,6 +200,8 @@ def dispatch(a: argparse.Namespace) -> tuple[Any, int]:
         return spec_mod.resolve(ws, p), 0
     if a.cmd == "ls":
         return ops.ls(ws), 0
+    if a.cmd == "route" and not a.piece:
+        return video_mod.resolve(ws, live=not a.offline), 0
     if a.cmd == "reap":
         return ops.reap(ws, dry_run=a.dry_run), 0
 
@@ -204,6 +216,10 @@ def dispatch(a: argparse.Namespace) -> tuple[Any, int]:
                 return loop.ingest_clip(ws, piece, mp4, job=a.job, shot=a.shot), 0
         finally:
             mp4.unlink(missing_ok=True)
+    if a.cmd == "route":  # read-only; the live check can take a few seconds
+        return video_mod.resolve(ws, piece, live=not a.offline), 0
+    if a.cmd == "generate":  # minutes long: it holds a per-shot lock and takes the piece lock only to write
+        return video_mod.generate(ws, piece, a.shot, a.guidance_from, a.wait_s, a.clear_unknown), 0
     if a.cmd == "status":  # read-only: never wait behind a running cut
         return piece.status, 0
     if a.cmd == "prompt":  # read-only too

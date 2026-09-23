@@ -386,7 +386,18 @@ The API bills in USD, the MCP in Higgsfield credits. One ledger unit per currenc
 | Command | Who | Does |
 |---|---|---|
 | `foundry route <piece>` | agent + human | Prints `{route, reason}`. Live check; spends nothing. |
-| `foundry generate <piece> --shot <id> [--guidance-from clip]` | agent + human | API route only. Refuses unless the route is api. Under a per-shot non-blocking lock: build the motion prompt, price it, `reserve video_usd` (may BLOCK on the ceiling), upload the approved frame, submit, persist `incoming/<shot>.api-job.json`, poll, settle, download through the existing https checks, ingest. Re-running after an interruption **resumes polling the saved request instead of resubmitting.** |
+| `foundry generate <piece> --shot <id> [--guidance-from clip] [--wait-s N]` | agent + human | API route only. Refuses unless the route is api. Under a per-shot non-blocking lock: build the motion prompt, price it, `reserve video_usd` (may BLOCK on the ceiling), upload the approved frame, write `incoming/<shot>.api-job.json` (`phase: submitting`) **before** the POST, submit, rewrite it `phase: submitted`, poll, settle, download through the existing https checks, ingest. Re-running after an interruption **resumes polling the saved request instead of resubmitting.** |
+| `foundry generate <piece> --shot <id> --clear-unknown` | **human only** | Clears a shot parked after an unknown-outcome submit, once the human has checked the Higgsfield console. |
+
+**Each call waits at most 90 s** (`providers.video.api.poll_timeout_s`, or `--wait-s` up to 3600). The
+build agent's shell kills long commands, so generate returns "not finished — run again" and the next call
+resumes. A call killed *inside* the POST leaves `phase: submitting`; the next call treats that as an
+unknown outcome.
+
+**Unknown outcome** (submit timeout, 5xx, accepted-but-unfollowable, or killed mid-POST): the reservation
+is settled as charged (`ref unknown-<entry>`), the shot is parked in `incoming/<shot>.api-unknown.json`,
+and every later `generate` for that shot refuses until a human runs `--clear-unknown`. The build agent
+prints `BLOCKED video.unknown_submit` and stops; it never generates that shot another way.
 
 ## Build, skill, doctor
 
@@ -406,8 +417,10 @@ The API bills in USD, the MCP in Higgsfield credits. One ledger unit per currenc
 3. `foundry generate` makes exactly one submit per call, reserves `video_usd` before any
    upload, refuses when the route is mcp, and never sends credentials to the upload or
    download host.
-4. Submit timeout / 5xx → reservation settled charged, request not resubmitted, error says so.
-5. Interrupted generate → re-run resumes the saved request (no second submit).
+4. Submit timeout / 5xx → reservation settled charged, request not resubmitted, the shot parked until a
+   human `--clear-unknown` (refused under `FOUNDRY_AGENT`).
+5. Interrupted generate → re-run resumes the saved request (no second submit); killed mid-POST → treated
+   as criterion 4. Default wait per call is 90 s.
 6. failed / nsfw → settled failed with the request id; clip not ingested.
 7. Budget: `video_usd` ceiling frozen at approval; a reservation past it BLOCKs `budget.video_usd`.
 8. Headless dry-run with api route builds argv without `mcp_server`.

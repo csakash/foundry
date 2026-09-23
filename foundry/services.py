@@ -11,11 +11,12 @@ from typing import Any
 
 OPENAI_KEYS_URL = "https://platform.openai.com/api-keys"
 CLAUDE_CONNECTORS_URL = "https://claude.ai/settings/connectors"
+HIGGSFIELD_API_KEYS_URL = "https://console.higgsfield.ai"  # the Higgsfield API route: HF_KEY=<key_id>:<secret>
 
 MCP_SERVERS: list[dict[str, str]] = [
     {
         "name": "Higgsfield",
-        "needed_for": "generating the video clips in /foundry-build (seedance_2_5)",
+        "needed_for": "generating the video clips in /foundry-build (seedance_2_5) when the Higgsfield API is unavailable",
         "url": "https://mcp.higgsfield.ai/mcp",
         "host": "mcp.higgsfield.ai",
         "account": "https://higgsfield.ai",

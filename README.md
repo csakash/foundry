@@ -18,12 +18,18 @@ cd ~/my-factory && foundry init           # foundry.json; put OPENAI_API_KEY in 
 foundry doctor                            # says exactly what is still missing, with links
 ```
 
-You connect two outside services once:
+You connect two outside services once (plus an optional third):
 
 | Service | Used for | How to connect |
 |---|---|---|
 | OpenAI | characters, sheets, first frames | create a key at https://platform.openai.com/api-keys and add `OPENAI_API_KEY=sk-...` to the workspace `.env` |
-| Higgsfield MCP | the video clips | needs a Higgsfield account with credits (https://higgsfield.ai). Add `https://mcp.higgsfield.ai/mcp` as a custom connector at https://claude.ai/settings/connectors, or run `claude mcp add --transport http higgsfield https://mcp.higgsfield.ai/mcp` |
+| Higgsfield API | the video clips, **used whenever it is available** | create a key at https://console.higgsfield.ai and add `HF_KEY=<key_id>:<secret>` to the workspace `.env`. Billed in USD, separately from Higgsfield app credits |
+| Higgsfield MCP | the video clips, when the API is unavailable | needs a Higgsfield account with credits (https://higgsfield.ai). Add `https://mcp.higgsfield.ai/mcp` as a custom connector at https://claude.ai/settings/connectors, or run `claude mcp add --transport http higgsfield https://mcp.higgsfield.ai/mcp` |
+
+The video rule: **if the Higgsfield API is available, Foundry uses it; otherwise the MCP.** "Available"
+is checked live each build with Higgsfield's free estimate endpoint; `foundry route` shows the answer
+and why. Pin one with `providers.video.route` (`"api"` or `"mcp"`; default `"auto"`). On the API route
+`foundry generate` does the whole call itself, so the build agent never holds the key or a generate tool.
 
 | Step | Command | Human? |
 |---|---|---|
@@ -37,9 +43,9 @@ You connect two outside services once:
 `foundry ls` shows every piece's state, cycles and credits; `foundry reap` clears media from
 posted pieces. Or just say `/foundry <what you want>`.
 
-Headless builds need `providers.video.mcp_server` in `foundry.json` (the video MCP server's name as
-Claude Code lists it). The session gets `foundry`, reads under `work/`, and six named video tools,
-nothing else. Optionally pin `providers.video.transfer_hosts` to the provider's upload and CDN hosts.
+Headless builds on the MCP route need `providers.video.mcp_server` in `foundry.json` (the video MCP
+server's name as Claude Code lists it); on the API route they need nothing extra. The session gets
+`foundry`, reads under `work/`, and — only when `mcp_server` is set — six named video tools, nothing else. Optionally pin `providers.video.transfer_hosts` to the provider's upload and CDN hosts.
 
 ## Why it exists
 

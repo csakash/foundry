@@ -1,6 +1,6 @@
 ---
 name: foundry-build
-description: Build an approved Foundry piece to green — record face boxes and hands verdicts, generate the clip with the Higgsfield video MCP (seedance_2_5) from the approved first frame, and loop frames → clip → cut against machine QC within the retry budget. Never ships red. Use after the sheet is approved. In-session twin of `foundry build --mode bypass`.
+description: Build an approved Foundry piece to green — record face boxes and hands verdicts, generate each clip from the approved first frame (Higgsfield API via `foundry generate` when it is available, otherwise the Higgsfield video MCP, seedance_2_5), and loop frames → clip → cut against machine QC within the retry budget. Never ships red. Use after the sheet is approved. In-session twin of `foundry build --mode bypass`.
 allowed-tools:
   - Bash(foundry:*)
   - Read
@@ -10,13 +10,25 @@ allowed-tools:
 
 Get the driving prompt and follow it exactly: `foundry build <piece> --mode interactive --json`
 prints it in `prompt`. The CLI enforces the policy (retry budget, invoice ceiling, BLOCKED).
-Your job is the two things it cannot do: look at images, and call the video tools.
+Your job is the two things it cannot do: look at images, and — on the MCP route — call the video tools.
 
 **Looking.** Open the image with Read. Face box = forehead to chin, ear to ear, as fractions
 of width and height. Hands verdict: every visible hand has five distinct fingers, no fused or
 extra digits, no hand melting into the face. When unsure, fail it and say why.
 
-**Video.** Preflight reachability once with the Higgsfield `balance` tool.
+**Video: which route.** Before each shot, `foundry route <piece> --json`. The rule: if the
+Higgsfield API is available, always use it; otherwise use the Higgsfield MCP.
+
+**API route** (`route: api`). One command per clip, no video tools:
+`foundry generate <piece> --shot <shot id> --json` (add `--guidance-from clip` on a regeneration).
+It prices the clip, reserves `video_usd`, uploads the approved frame, submits, waits, downloads and
+ingests. If it reports the request is not finished, run the same command again — it resumes that
+request and never resubmits. If it refuses and says to use the MCP steps, switch to the MCP route
+for that shot. If it says a human must check the Higgsfield console (a submit with an unknown
+outcome), print `BLOCKED video.unknown_submit: <message>` and stop — do not generate that shot any
+other way; only the human can clear it (`--clear-unknown`).
+
+**MCP route** (`route: mcp`). Preflight reachability once with the Higgsfield `balance` tool.
 1. `foundry prompt <piece> --kind motion --json` (add `--guidance-from clip` on a retry).
 2. `models_explore` for `seedance_2_5` once: find the start-image media role and allowed durations.
 3. `media_upload` with filename `approved.png`, then `foundry upload <piece> --url <upload_url>`
@@ -34,4 +46,5 @@ Never retry a submission whose outcome is unknown after a timeout; reuse the job
 
 **Rules.** You cannot edit files and there is no raw shell: only `foundry`, Read and the video tools. Never run `foundry ship`.
 Any BLOCKED: print `BLOCKED <gate>: <evidence>` and stop with the files kept. On green,
-report credits used (`foundry ls --json`) and hand off to `/foundry-ship`.
+report spend (`foundry ls --json`: `video_usd` on the API route, `video_credits` on the MCP route)
+and hand off to `/foundry-ship`.

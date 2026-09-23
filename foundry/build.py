@@ -2,7 +2,8 @@
 
 Mirrors gstack-loops' driver (a mode, a driving prompt, a spawned `claude -p`), with one
 deliberate difference: the session gets NO file-editing tools and NO raw shell. It may
-run `foundry` (minus the human steps), read files, and call the video MCP server. Every
+run `foundry` (minus the human steps), read files, and — on the MCP route only — call the video MCP server.
+On the Higgsfield API route (SPEC.md "Higgsfield API route") `foundry generate` makes the call itself. Every
 QC limit lives in approved.lock.json and every transfer goes through `foundry upload` /
 `foundry fetch`, so the agent cannot edit its way to green or send workspace files
 anywhere. FOUNDRY_AGENT=1 marks the session; human steps refuse under it.
@@ -15,6 +16,7 @@ import shutil
 import subprocess
 from typing import Any
 
+from . import video as video_mod
 from .piece import LOCK, Piece
 from .util import AGENT_ENV, FoundryError, human_only, read_json
 from .workspace import Workspace
@@ -28,11 +30,27 @@ SERVER_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 HUMAN_STEPS = ["init", "cast", "new", "set", "sheet", "approve", "build", "ship", "posted", "reap"]
 
 
-def prompt(ws: Workspace, piece: Piece, cycles: int) -> str:
+def prompt(ws: Workspace, piece: Piece, cycles: int, route: dict[str, Any] | None = None) -> str:
     video = ws.config["providers"]["video"]
+    route = route or {"route": "mcp", "reason": "not resolved"}
+    mcp_ok = bool(video.get("mcp_server")) or route["route"] == "mcp"
     ref = piece.ref
     d = piece.path.relative_to(ws.root)
     shots = ", ".join(sh["id"] for sh in (read_json(piece.rel("spec.json")) or {}).get("shots", [])) or "shot01"
+    mcp_steps = [
+        "   MCP route:",
+        f"   a. `foundry prompt {ref} --kind motion --shot <shot id>` prints that shot's motion prompt and generate_video params.",
+        "   b. Use the video MCP: models_explore once for the start-image media role and durations; media_upload for approved.png;",
+        f"      `foundry upload {ref} --url <upload_url>`; media_confirm; generate_video with get_cost true (model {video['model']},",
+        f"      aspect {video['aspect']}, no audio). A preset recommendation instead of a cost: re-send with declined_preset_id.",
+        f"   c. `foundry reserve {ref} --unit video_credits --amount <cost>` (BLOCKED means stop). generate_video for real.",
+        f"      jobs_wait until terminal. `foundry settle {ref} <entry> --ok --ref <job_id>` (or --failed if the job failed).",
+        f"   d. `foundry fetch {ref} --url <result url> --job <job_id> --shot <shot id>`.",
+        "      Never resubmit a generation whose outcome is unknown after a timeout; reuse the job id.",
+    ] if mcp_ok else [
+        "   MCP route: not available in this session (no providers.video.mcp_server). If foundry route says mcp,",
+        "   print `BLOCKED video.route: <its reason>` and stop.",
+    ]
     return "\n".join([
         f"You are building the Foundry piece {ref} in this workspace. Its spec is approved; do not re-scope it.",
         f"Read {d}/SPEC.md first. Every step below is a `foundry` command; add --json and act on what it prints.",
@@ -44,19 +62,22 @@ def prompt(ws: Workspace, piece: Piece, cycles: int) -> str:
         f"3. `foundry qc {ref} --stage frames`. If red and not blocked: `foundry regen-frame {ref}`, then repeat 1-3.",
         "",
         "STAGE CLIP (repeat for each shot: " + shots + ")",
-        f"4. `foundry prompt {ref} --kind motion --shot <shot id>` prints that shot's motion prompt and generate_video params.",
-        "5. Use the video MCP: models_explore once for the start-image media role and durations; media_upload for approved.png;",
-        f"   `foundry upload {ref} --url <upload_url>`; media_confirm; generate_video with get_cost true (model {video['model']},",
-        f"   aspect {video['aspect']}, no audio). A preset recommendation instead of a cost: re-send with declined_preset_id.",
-        f"6. `foundry reserve {ref} --unit video_credits --amount <cost>` (BLOCKED means stop). generate_video for real.",
-        f"   jobs_wait until terminal. `foundry settle {ref} <entry> --ok --ref <job_id>` (or --failed if the job failed).",
-        f"7. `foundry fetch {ref} --url <result url> --job <job_id> --shot <shot id>`. Look at clips/<shot id>/frames/.",
-        f"   Record the hands verdict for stage clip. `foundry qc {ref} --stage clip`. If red and not blocked: repeat 4-7 with",
-        f"   `foundry prompt {ref} --kind motion --shot <shot id> --guidance-from clip`.",
-        "   Never resubmit a generation whose outcome is unknown after a timeout; reuse the job id.",
+        f"4. `foundry route {ref}` says which video route to use now: api (the Higgsfield API) or mcp. Ask again for each",
+        f"   shot. At build start it said {route['route']} ({route['reason']}).",
+        "5. Generate the shot's clip on that route.",
+        "   API route:",
+        f"   `foundry generate {ref} --shot <shot id>` (add `--guidance-from clip` on a regeneration). It prices, reserves,",
+        "   uploads, submits, waits, downloads and ingests; you call no video tools. If it says the request is not finished,",
+        "   run it again: it resumes the same request and never resubmits. If it refuses and says to use the MCP steps,",
+        "   follow the MCP route for this shot. If it says a human must check the Higgsfield console, print",
+        "   `BLOCKED video.unknown_submit: <its message>` and stop: never try to generate that shot another way.",
+        *mcp_steps,
+        f"6. Look at clips/<shot id>/frames/. Record the hands verdict for stage clip. `foundry qc {ref} --stage clip`.",
+        "   If red and not blocked: repeat 4-6 for that shot, regenerating with the clip guidance",
+        f"   (API: --guidance-from clip; MCP: `foundry prompt {ref} --kind motion --shot <shot id> --guidance-from clip`).",
         "",
         "STAGE CUT",
-        f"8. `foundry cut {ref}` then `foundry qc {ref} --stage cut`. A red cut cannot be fixed by you: report the guidance.",
+        f"7. `foundry cut {ref}` then `foundry qc {ref} --stage cut`. A red cut cannot be fixed by you: report the guidance.",
         "",
         "RULES",
         "- NEVER ship red. You cannot edit files; do not try. The human runs `foundry ship`.",
@@ -65,21 +86,24 @@ def prompt(ws: Workspace, piece: Piece, cycles: int) -> str:
     ])
 
 
-def argv(ws: Workspace, piece: Piece, mode: str, cycles: int) -> list[str]:
+def argv(ws: Workspace, piece: Piece, mode: str, cycles: int, route: dict[str, Any] | None = None) -> list[str]:
+    route = route or {"route": "mcp", "reason": "not resolved"}
     server = ws.config["providers"]["video"].get("mcp_server")
-    if not server:
+    if route["route"] == "mcp" and not server:
         raise FoundryError("providers.video.mcp_server is not set in foundry.json; the headless session needs the "
-                           "video MCP server's name to call its tools")
-    if not SERVER_RE.match(server):
+                           f"video MCP server's name to call its tools (the Higgsfield API is not in use: "
+                           f"{route['reason']})")
+    if server and not SERVER_RE.match(server):
         raise FoundryError(f"providers.video.mcp_server {server!r} must match {SERVER_RE.pattern}")
     piece_dir = piece.path.relative_to(ws.root)  # the agent reads only its own piece
-    allowed = ["Bash(foundry:*)", f"Read(./{piece_dir}/**)"] + [f"mcp__{server}__{t}" for t in VIDEO_TOOLS]
+    allowed = ["Bash(foundry:*)", f"Read(./{piece_dir}/**)"] + ([f"mcp__{server}__{t}" for t in VIDEO_TOOLS]
+                                                                 if server else [])
     # dontAsk + the allowlist already confine reads to this piece's directory. Never deny a home-wide pattern: the
     # workspace itself usually lives under the home directory and deny rules beat allow rules.
     denied = (["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Read(./.env)", "Read(~/.ssh/**)",
                "Read(~/.aws/**)", "Read(~/.config/**)"]
               + [f"Bash(foundry {s}:*)" for s in HUMAN_STEPS])
-    return ["claude", "-p", prompt(ws, piece, cycles), "--permission-mode", PERMISSION_MODE[mode],
+    return ["claude", "-p", prompt(ws, piece, cycles, route), "--permission-mode", PERMISSION_MODE[mode],
             "--allowedTools", *allowed, "--disallowedTools", *denied]
 
 
@@ -102,12 +126,13 @@ def build(ws: Workspace, piece: Piece, mode: str, cycles: int | None = None, dry
         if not dry_run:
             piece.set_fix_cycles(cycles)  # re-checks the state under the piece lock
     budget = cycles if cycles is not None else lock["fix_cycles"]
-    text = prompt(ws, piece, budget)
+    route = video_mod.resolve(ws, piece)  # live, once per build; the agent re-asks per shot
+    text = prompt(ws, piece, budget, route)
     if mode == "interactive":
-        return {"piece": piece.ref, "mode": mode, "fix_cycles": budget, "prompt": text,
+        return {"piece": piece.ref, "mode": mode, "fix_cycles": budget, "prompt": text, "video_route": route,
                 "next": f"run /foundry-build {piece.ref} in a Claude session in this workspace"}
-    args = argv(ws, piece, mode, budget)
-    out = {"piece": piece.ref, "mode": mode, "fix_cycles": budget, "prompt": text,
+    args = argv(ws, piece, mode, budget, route)
+    out = {"piece": piece.ref, "mode": mode, "fix_cycles": budget, "prompt": text, "video_route": route,
            "argv": args[:2] + ["<prompt>"] + args[3:]}
     if dry_run:
         return out

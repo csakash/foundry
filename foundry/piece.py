@@ -29,6 +29,7 @@ STAGES = ["frames", "clip", "cut"]
 APPROVED = "frames/approved.png"
 LOCK = "approved.lock.json"
 COUNTED = ("reserved", "settled", "failed")  # a failed call may still have been billed
+VIDEO_UNITS = ("video_credits", "video_usd")  # MCP credits, Higgsfield API dollars (SPEC.md "Higgsfield API route")
 
 
 class Piece:
@@ -332,14 +333,15 @@ class Piece:
                                                        f"approval is over the ceiling {inv['ceilings'][unit]:g}")
             return e
 
-    def consume(self, unit: str, ref: str, check_only: bool = False) -> dict[str, Any]:
-        """Tie a generated asset to the settled reservation that paid for it, once."""
+    def consume(self, unit: str | tuple[str, ...], ref: str, check_only: bool = False) -> dict[str, Any]:
+        """Tie a generated asset to the settled reservation that paid for it, once. `unit` may name several."""
+        units = (unit,) if isinstance(unit, str) else tuple(unit)
         with self.exclusive():
             inv = self.invoice
-            e = next((x for x in inv["entries"] if x["unit"] == unit and x.get("ref") == ref
+            e = next((x for x in inv["entries"] if x["unit"] in units and x.get("ref") == ref
                       and x["state"] == "settled" and not x.get("consumed")), None)
             if e is None:
-                raise FoundryError(f"no settled, unused {unit} reservation with ref {ref!r}; "
+                raise FoundryError(f"no settled, unused {' or '.join(units)} reservation with ref {ref!r}; "
                                    f"reserve before generating and settle with --ref {ref}")
             if check_only:
                 return e

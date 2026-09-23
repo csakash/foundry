@@ -206,7 +206,7 @@ def test_ingest_clip_refuses_bad_inputs_before_spending(ws, tmp_path):
     with pytest.raises(FoundryError, match="no video stream"):
         loop.ingest_clip(ws, p, audio, job="j")
     short = video(tmp_path / "short.mp4", seconds=0.2)
-    with pytest.raises(FoundryError, match="no settled, unused video_credits reservation"):
+    with pytest.raises(FoundryError, match="no settled, unused video_credits or video_usd reservation"):
         loop.ingest_clip(ws, p, short, job="j")  # an unpaid clip is refused before any file is touched
     assert not p.rel("clips", ".staging-shot01").exists()
     eid = p.reserve("video_credits", 32.5, "paid")
