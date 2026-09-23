@@ -19,7 +19,7 @@ When the Higgsfield API is available Foundry now always uses it for video; other
 ### Changed
 
 - The build prompt and `/foundry-build` ask `foundry route` per shot. Headless builds need `providers.video.mcp_server` only on the MCP route.
-- A clip can be paid for in either video unit (`ingest-clip`, `fetch`), never by an `unknown-…` charge, and not while the shot has an API request in flight or parked.
+- Each video unit pays only on its own route: `ingest-clip`/`fetch` consume `video_credits`, only `foundry generate` consumes `video_usd`. An `unknown-…` charge never pays for a clip, and a shot with an API request in flight or parked refuses any other clip.
 - `foundry settle` refuses `video_usd` entries (only `foundry generate` settles them). The shipped recipe's `cost_per_run` includes `video_usd`.
 - Pieces approved before this change have no `video_usd` ceiling, so they stay on the MCP route.
 

@@ -388,9 +388,10 @@ The API bills in USD, the MCP in Higgsfield credits. One ledger unit per currenc
   fallback part-way through — its spend has a frozen ceiling.
 - `video_usd` is reserved only by `foundry generate`. `foundry reserve --unit` keeps its current
   choices, so the agent cannot book API spend by hand.
-- `ingest-clip` / `fetch` accept a settled, unconsumed reservation in either video unit — **except**
-  an `unknown-…` charge, which can never pay for a clip, and except while the shot has an API request
-  in flight or parked (only that request's own id is accepted).
+- **Each unit pays only on its own route.** `ingest-clip` / `fetch` (MCP) consume only `video_credits`;
+  only `foundry generate` consumes `video_usd`, and only for the request it collected. An `unknown-…`
+  charge can never pay for a clip, and a shot with an API request in flight or parked refuses any other
+  clip.
 - New settle state **`void`**: reserved, then nothing was sent (upload failed, a definite refusal, a
   kill before the POST). Not counted against the ceiling. Set only by foundry.
 - `foundry settle` refuses `video_usd` entries: only `foundry generate` settles them.
@@ -401,7 +402,7 @@ The API bills in USD, the MCP in Higgsfield credits. One ledger unit per currenc
 
 | Command | Who | Does |
 |---|---|---|
-| `foundry route [piece]` | agent + human | Prints `{route, reason, cause}`. Live check; spends nothing. A piece with an API request in flight always routes to api (it must be collected there). |
+| `foundry route [piece]` | agent + human | Prints `{route, reason, cause}`. Live check; spends nothing. A piece with an API request in flight routes to api (it must be collected there); `generate` ignores that override before a *new* submit, so another shot's request never waives the pin, key or ceiling checks. |
 | `foundry generate <piece> --shot <id> [--guidance-from clip] [--wait-s N]` | agent + human | API route only (it trusts the `foundry route` just asked; the submit re-checks). Under a per-shot non-blocking lock: price, `reserve video_usd` (may BLOCK), upload, submit, poll, settle, download through the existing https checks, ingest. |
 | `foundry generate <piece> --shot <id> --clear-unknown` | **human only** | Unparks a shot after an unknown-outcome submit, and abandons a request foundry cannot collect (settled charged, `unknown-<request>`, never usable). |
 
@@ -422,7 +423,8 @@ for its request finishes cleanly.
 commands at ~2 min): ~75 s of waiting and 25 s kept for download and ingest. Every request timeout
 is capped by the time left, and generate will not *start* a POST without the request timeout plus
 5 s in hand — it voids the reservation and asks for a re-run instead. `--wait-s N` (≤ 3600) or
-`providers.video.api.poll_timeout_s` size a longer call for a human in a terminal. Not finished →
+`providers.video.api.poll_timeout_s` size a longer call for a human in a terminal; under the build
+agent the call is always capped at 100 s. The download gets at most half the time left. Not finished →
 "run it again", which resumes.
 
 **Unknown outcome**: the reservation is settled as charged (`ref unknown-<entry>`), the shot is

@@ -207,7 +207,7 @@ def api_ws(ws, monkeypatch, tmp_path):  # noqa: F811
     puts = []
     monkeypatch.setattr(loop, "put_presigned", lambda w, p, url, headers, timeout=0: puts.append({"url": url, **headers}))
 
-    def download(w, piece, url, job, shot="shot01"):
+    def download(w, piece, url, job, shot="shot01", timeout=300):
         return clip_from(piece.rel("frames/approved.png"), piece.rel("incoming", f"{shot}-{job}.mp4"))
     monkeypatch.setattr(loop, "download_clip", download)
     return ws, fake, puts
@@ -663,3 +663,68 @@ def test_doctor_without_a_key_explains_how_to_add_one(ws):  # noqa: F811
 
 def test_a_developer_key_never_reaches_these_tests():
     assert credentials() is None  # conftest strips HF_*: no test here can route to the real API
+
+
+# ---------------------------------------------------------------- second review pass
+def test_an_api_charge_can_never_pay_for_a_clip_through_the_mcp_commands(api_ws):
+    root, fake, _ = api_ws
+    ref = building(root)
+    fake.pending_first = True
+    sh(root, "generate", ref)  # r1 in flight
+    clip = clip_from(root / "work" / ref / "frames/approved.png", root / "other.mp4")
+    code, r = sh(root, "ingest-clip", ref, str(clip), "--job", "r1")  # even with the API's own request id
+    assert code == 2 and "video_credits" in r["error"]
+    approved = root / "work" / ref / "frames/approved.png"
+    approved.write_bytes(approved.read_bytes() + b"\0")
+    assert sh(root, "generate", ref)[0] == 2  # charged, not ingested, job file gone
+    code, r = sh(root, "ingest-clip", ref, str(clip), "--job", "r1")
+    assert code == 2 and not (root / "work" / ref / "clips/shot01.mp4").exists()
+
+
+def test_another_shots_request_never_waives_the_route_checks(api_ws):
+    root, fake, _ = api_ws
+    ref = building(root)
+    write_json(incoming(root, ref, "shot09.api-job.json"), {"phase": "submitted", "entry": "e999", "shot": "shot09",
+                                                           "request_id": "r9", "status_url": "https://x", "cost_usd": 1})
+    cfg = read_json(root / "foundry.json")
+    cfg["providers"]["video"]["route"] = "mcp"
+    write_json(root / "foundry.json", cfg)
+    assert sh(root, "route", ref)[1]["route"] == "api"  # in flight: collect it there
+    code, r = sh(root, "generate", ref, "--shot", "shot01")  # but no NEW submit on a pinned-mcp workspace
+    assert code == 2 and "video route is mcp" in r["error"]
+    assert fake.calls["submit"] == 0 and entries(root, ref) == []
+
+
+def test_a_kill_between_consume_and_the_clip_record_still_finishes(api_ws):
+    root, fake, _ = api_ws
+    ref = building(root)
+    fake.pending_first = True
+    sh(root, "generate", ref)
+    job = read_json(incoming(root, ref, "shot01.api-job.json"))
+    assert sh(root, "generate", ref)[0] == 0
+    write_json(incoming(root, ref, "shot01.api-job.json"), job)
+    (root / "work" / ref / "clips/shot01.json").unlink()  # killed after consume, before the record was written
+    code, r = sh(root, "generate", ref)
+    assert code == 0 and r["already_ingested"] and fake.calls["submit"] == 1
+
+
+def test_an_orphaned_reservation_can_be_voided_by_a_human(api_ws):
+    root, fake, _ = api_ws
+    ref = building(root)
+    eid = piece_of(root, ref).reserve("video_usd", 2.32, "killed before the job file")  # no job file refers to it
+    code, r = sh(root, "generate", ref, "--clear-unknown")
+    assert code == 0 and r["cleared"]["voided_orphans"] == [eid]
+    assert piece_of(root, ref).spent("video_usd") == 0
+
+
+def test_the_agent_never_waits_past_its_shell(api_ws, monkeypatch):
+    root, fake, _ = api_ws
+    ref = building(root)
+    cfg = read_json(root / "foundry.json")
+    cfg["providers"]["video"]["api"] = {"poll_timeout_s": 600}
+    write_json(root / "foundry.json", cfg)
+    monkeypatch.setenv("FOUNDRY_AGENT", ref)
+    monkeypatch.chdir(root)
+    from foundry import cli
+    assert cli.main(["generate", ref, "--json"]) == 0
+    assert fake.waited[-1] <= video.CALL_BUDGET_S - video.COLLECT_RESERVE_S

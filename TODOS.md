@@ -147,3 +147,26 @@
 **Effort:** S
 **Priority:** P2
 **Depends on:** None
+
+### Park an API request whose result cannot be downloaded
+
+**What:** If the result host is not in `providers.video.transfer_hosts`, or the result URL expired (Higgsfield keeps outputs ≥ 7 days), every `foundry generate` re-run polls, finds it completed, and fails the download again. The only exit is a human `--clear-unknown`.
+
+**Why:** Found in the `higgsfield-api` second review pass. Money is safe (settled once, never reusable), but the loop wastes the agent's retries.
+
+**Context:** After N failed downloads, park the shot with a clear message; and have `resolve` warn when `transfer_hosts` is set but omits the API's upload/result hosts.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
+### fsync invoice.json
+
+**What:** The API job file is fsynced; `invoice.json` (reserve/settle) is not. After a power loss the job file can outlive its invoice entry.
+
+**Why:** Rare, but it would drop a recorded charge. Found in the `higgsfield-api` second review pass.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+

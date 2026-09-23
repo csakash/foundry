@@ -30,7 +30,7 @@ from engine.qc import caption_band, drift, duration, frame0, hands, loudness, sa
 
 from . import cast, media
 from .imaging import capture_treatment, save_png
-from .piece import APPROVED, STAGES, VIDEO_UNITS, Piece
+from .piece import APPROVED, STAGES, Piece
 from .spec import first_frame_prompt
 from .util import AGENT_ENV, SHOT_RE, FoundryError, check_face_box, check_name, inside, now, read_json, write_json
 from .workspace import Workspace
@@ -243,7 +243,8 @@ def regen_frame(ws: Workspace, piece: Piece, provider=None) -> dict[str, Any]:
             "next": "record the face box and hands verdict for the new frame, then foundry qc --stage frames"}
 
 
-def ingest_clip(ws: Workspace, piece: Piece, mp4: Path, job: str, shot: str = "shot01") -> dict[str, Any]:
+def ingest_clip(ws: Workspace, piece: Piece, mp4: Path, job: str, shot: str = "shot01",
+                units: tuple[str, ...] = ("video_credits",)) -> dict[str, Any]:
     """Validate and sample into staging first; only then spend the payment, bump the cycle and swap files."""
     piece.require("building")
     piece.require_pass("frames")
@@ -275,7 +276,8 @@ def ingest_clip(ws: Workspace, piece: Piece, mp4: Path, job: str, shot: str = "s
     regeneration = dst.exists()
     if regeneration:
         begin_regeneration(piece, "clip")
-    piece.consume(VIDEO_UNITS, job, check_only=True)  # refuse an unpaid clip before touching any file
+    # `ingest-clip`/`fetch` (MCP route) pay only in video_credits; API dollars are spent only by foundry.video
+    piece.consume(units, job, check_only=True)  # refuse an unpaid clip before touching any file
     stage_dir = piece.rel("clips", f".staging-{shot}")
     if stage_dir.exists():
         shutil.rmtree(stage_dir)
@@ -300,7 +302,7 @@ def ingest_clip(ws: Workspace, piece: Piece, mp4: Path, job: str, shot: str = "s
     (stage_dir / f"{shot}.mp4").replace(dst)
     (stage_dir / "frames").replace(piece.rel("clips", shot, "frames"))
     shutil.rmtree(stage_dir, ignore_errors=True)
-    piece.consume(VIDEO_UNITS, job)  # the payment is spent only once the clip is in place
+    piece.consume(units, job)  # the payment is spent only once the clip is in place
     write_json(piece.rel("clips", f"{shot}.json"), {"source": str(src), "job": job, "cycle": cycle, "at": now(),
                                                    "frames": [f.name for f in frames], "probe": info})
     return {"piece": piece.ref, "shot": shot, "cycle": cycle, "frames": len(frames),
@@ -364,7 +366,8 @@ def put_presigned(ws: Workspace, piece: Piece, url: str, headers: dict[str, str]
         return {"piece": piece.ref, "uploaded": APPROVED, "bytes": len(data), "http": r.status}
 
 
-def download_clip(ws: Workspace, piece: Piece, url: str, job: str, shot: str = "shot01") -> Path:
+def download_clip(ws: Workspace, piece: Piece, url: str, job: str, shot: str = "shot01",
+                  timeout: float = 300) -> Path:
     """Runs without the piece lock (a download can take minutes); ingest then takes it."""
     piece.require("building")
     check_name(shot, SHOT_RE, "shot id")
@@ -376,7 +379,7 @@ def download_clip(ws: Workspace, piece: Piece, url: str, job: str, shot: str = "
     dst = incoming / f"{shot}-{safe_job}-{tag}.mp4"
     part = dst.with_suffix(".part")
     try:
-        with opener.open(urllib.request.Request(_check_url(url, hosts)), timeout=300) as r, open(part, "wb") as f:
+        with opener.open(urllib.request.Request(_check_url(url, hosts)), timeout=timeout) as r, open(part, "wb") as f:
             total = 0
             while chunk := r.read(1 << 20):
                 total += len(chunk)

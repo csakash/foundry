@@ -26,7 +26,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "vision": {"kind": "agent"},
         # route: "auto" uses the Higgsfield API when it is available and the MCP otherwise; "api" or "mcp" pins one
         # (SPEC.md "Higgsfield API route"). model/aspect/mcp_server describe the MCP route. The API route takes
-        # resolution from here and, optionally, "api": {"poll_timeout_s": N} (default 90 s per generate call).
+        # resolution from here and, optionally, "api": {"poll_timeout_s": N} to wait longer per generate call
+        # (default: the whole call fits in 100 s; under the build agent it is always capped at 100 s).
         "video": {"kind": "higgsfield-mcp", "model": "seedance_2_5", "resolution": "720p", "aspect": "9:16",
                   "audio": False, "mcp_server": None, "route": "auto"},
     },

@@ -29,7 +29,7 @@ from engine.providers.higgsfield_api import (CONSOLE_URL, DURATION_S, PRICE_FRAM
 from . import loop
 from . import spec as spec_mod
 from .piece import UNKNOWN_REF_PREFIX, Piece
-from .util import SHOT_RE, FoundryError, check_name, human_only, now, read_json, sha256_file, write_json
+from .util import AGENT_ENV, SHOT_RE, FoundryError, check_name, human_only, now, read_json, sha256_file, write_json
 from .workspace import Workspace
 
 ROUTES = ("auto", "api", "mcp")
@@ -78,13 +78,16 @@ def _jobs(piece: Piece) -> list[Path]:
     return sorted(piece.rel("incoming").glob("*.api-job.json")) if piece.rel("incoming").exists() else []
 
 
-def resolve(ws: Workspace, piece: Piece | None = None, live: bool = True) -> dict[str, Any]:
-    """{route, reason, cause, pinned}. Never cached: availability is checked each time it is asked."""
+def resolve(ws: Workspace, piece: Piece | None = None, live: bool = True, in_flight: bool = True) -> dict[str, Any]:
+    """{route, reason, cause, pinned}. Never cached: availability is checked each time it is asked.
+
+    in_flight: a piece with API requests in flight routes to api so they are collected. `generate` turns it
+    off before a NEW submit, so another shot's request never waives the pin, key or ceiling checks."""
     video = ws.config["providers"]["video"]
     pinned = video.get("route", "auto")
     if pinned not in ROUTES:
         raise FoundryError(f"providers.video.route must be one of {', '.join(ROUTES)}, not {pinned!r}")
-    if piece is not None and _jobs(piece):  # money is in flight on the API: it must be collected there
+    if in_flight and piece is not None and _jobs(piece):  # money is in flight on the API: collect it there
         shots = ", ".join(p.name.split(".")[0] for p in _jobs(piece))
         return {"route": "api", "reason": f"API requests in flight for {shots}; collect them with foundry generate",
                 "cause": None, "pinned": pinned}
@@ -201,7 +204,14 @@ def _clear(piece: Piece, shot: str) -> dict[str, Any]:
             piece.settle(eid, ok=True, ref=f"{UNKNOWN_REF_PREFIX}{job.get('request_id') or eid}")
     piece.rel("incoming", f"{shot}.api-unknown.json").unlink(missing_ok=True)
     piece.rel("incoming", f"{shot}.api-job.json").unlink(missing_ok=True)
-    return {"piece": piece.ref, "shot": shot, "cleared": {"unknown": unknown, "abandoned_request": job}}
+    # a kill between reserve and the first job-file write leaves a reservation nothing refers to: nothing was sent
+    live = {(read_json(p) or {}).get("entry") for p in _jobs(piece)}
+    orphans = [e["id"] for e in piece.invoice["entries"]
+               if e["unit"] == "video_usd" and e["state"] == "reserved" and e["id"] not in live]
+    for eid in orphans:
+        _void(piece, eid)
+    return {"piece": piece.ref, "shot": shot,
+            "cleared": {"unknown": unknown, "abandoned_request": job, "voided_orphans": orphans}}
 
 
 def generate(ws: Workspace, piece: Piece, shot: str, guidance_from: str | None = None,
@@ -221,7 +231,10 @@ def generate(ws: Workspace, piece: Piece, shot: str, guidance_from: str | None =
         raise FoundryError("--wait-s must be between 0 and 3600 seconds")
     # --wait-s, else providers.video.api.poll_timeout_s, else fit the whole call in CALL_BUDGET_S (~75 s of waiting)
     wait = wait_s or (ws.config["providers"]["video"].get("api") or {}).get("poll_timeout_s")
-    deadline = started + (float(wait) + COLLECT_RESERVE_S if wait else CALL_BUDGET_S)
+    budget = float(wait) + COLLECT_RESERVE_S if wait else CALL_BUDGET_S
+    if os.environ.get(AGENT_ENV):  # the agent's shell kills long commands: never plan past it
+        budget = min(budget, CALL_BUDGET_S)
+    deadline = started + budget
     job_path = piece.rel("incoming", f"{shot}.api-job.json")
     with _shot_lock(piece, shot):
         if piece.rel("incoming", f"{shot}.api-unknown.json").exists():
@@ -245,7 +258,7 @@ def generate(ws: Workspace, piece: Piece, shot: str, guidance_from: str | None =
                 raise FoundryError(f"request {job['request_id']} is in flight but {NO_KEY}; restore the key and run "
                                    f"foundry generate again to collect it")
             return _collect(ws, piece, client, job, job_path, deadline, resumed=True)
-        route = resolve(ws, piece, live=False)  # `foundry route` checked live just before; the submit re-checks
+        route = resolve(ws, piece, live=False, in_flight=False)  # `foundry route` checked live; the submit re-checks
         if route["route"] != "api":
             raise FoundryError(f"the video route is mcp ({route['reason']}).{MCP_HINT}")
         client = make_client(ws)
@@ -303,8 +316,7 @@ def _submit(ws: Workspace, piece: Piece, client: HiggsfieldAPI, spec: dict[str, 
 def _already_ingested(piece: Piece, job: dict[str, Any]) -> dict[str, Any] | None:
     """A kill after ingest but before the job file was removed: the clip is in, finish cleanly."""
     clip = read_json(piece.rel("clips", f"{job['shot']}.json")) or {}
-    e = _entry(piece, job["entry"])
-    if clip.get("job") == job["request_id"] and e.get("consumed"):
+    if _entry(piece, job["entry"]).get("consumed"):  # consume runs only after the clip is in place
         return {"piece": piece.ref, "shot": job["shot"], "cycle": clip.get("cycle"), "already_ingested": True}
     return None
 
@@ -345,10 +357,10 @@ def _collect(ws: Workspace, piece: Piece, client: HiggsfieldAPI, job: dict[str, 
         raise FoundryError(f"request {rid} completed without a video URL; {eid} is settled as spent")
     if _left(deadline) < COLLECT_RESERVE_S / 2:
         raise FoundryError(f"request {rid} completed; {again} to download it")
-    mp4 = loop.download_clip(ws, piece, url, job=rid, shot=shot)
+    mp4 = loop.download_clip(ws, piece, url, job=rid, shot=shot, timeout=max(1.0, _left(deadline) / 2))
     try:
         with piece.exclusive():
-            ingest = loop.ingest_clip(ws, piece, mp4, job=rid, shot=shot)
+            ingest = loop.ingest_clip(ws, piece, mp4, job=rid, shot=shot, units=("video_usd",))
     finally:
         mp4.unlink(missing_ok=True)
     job_path.unlink(missing_ok=True)
