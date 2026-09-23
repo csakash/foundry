@@ -58,6 +58,13 @@ def structure(spec: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
-def plan(spec: dict[str, Any], candidates: int) -> dict[str, float]:
-    video = sum(math.ceil(sh["duration_s"] / 5) * UNIT_CREDITS["video_5s"] for sh in spec["shots"])
-    return {"image_call": float(1 + candidates), "video_credits": float(video)}
+def plan(spec: dict[str, Any], candidates: int, video: dict[str, Any] | None = None) -> dict[str, float]:
+    """One clip per shot, priced in both currencies so either video route has a frozen ceiling:
+    video_credits for the Higgsfield MCP, video_usd for the Higgsfield API."""
+    from .video import planned_usd
+    credits = sum(math.ceil(sh["duration_s"] / 5) * UNIT_CREDITS["video_5s"] for sh in spec["shots"])
+    out = {"image_call": float(1 + candidates), "video_credits": float(credits)}
+    usd = planned_usd(spec, video or {"resolution": "720p"})
+    if usd:
+        out["video_usd"] = usd
+    return out

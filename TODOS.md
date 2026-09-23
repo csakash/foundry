@@ -16,6 +16,8 @@
 
 ### Tie video generations to reservations at the provider
 
+**Status:** done for the Higgsfield API route (`foundry generate` holds the key and reserves before it submits; the agent has no generate tool). Still open for the MCP fallback route.
+
 **What:** Stop the agent from generating a video without a reservation, or detect it after the fact.
 
 **Why:** `foundry reserve` has a floor (one clip's price) and a ceiling, and a clip is only ingested with its settled reservation, but a `generate_video` call made without reserving leaves no trace in `invoice.json`.
@@ -123,3 +125,48 @@
 **Depends on:** None
 
 ## Completed
+
+### Claim the clip retry cycle when a generation is submitted
+
+**What:** Two different shots regenerating at the same time can both pass `begin_regeneration` with one retry left; both are paid, and the second ingest blocks the piece.
+
+**Why:** The clip cycle counter is shared across shots and only bumped at ingest. Found in the `higgsfield-api` review.
+
+**Context:** Single-shot specs (the hook_reel default) cannot hit it. The MCP route has the same race. Fix by reserving the cycle at submit and releasing it on a failed/void outcome.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
+### Strip the other provider secrets from the build agent's environment
+
+**What:** `foundry build` now strips `HF_*` from the env it gives `claude -p`; `OPENAI_API_KEY` (and any other key in the workspace `.env`) is still inherited.
+
+**Why:** Same reasoning as the Higgsfield key: `foundry` reloads `.env` itself, so the agent's shell never needs them.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
+
+### Park an API request whose result cannot be downloaded
+
+**What:** If the result host is not in `providers.video.transfer_hosts`, or the result URL expired (Higgsfield keeps outputs ≥ 7 days), every `foundry generate` re-run polls, finds it completed, and fails the download again. The only exit is a human `--clear-unknown`.
+
+**Why:** Found in the `higgsfield-api` second review pass. Money is safe (settled once, never reusable), but the loop wastes the agent's retries.
+
+**Context:** After N failed downloads, park the shot with a clear message; and have `resolve` warn when `transfer_hosts` is set but omits the API's upload/result hosts.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
+### fsync invoice.json
+
+**What:** The API job file is fsynced; `invoice.json` (reserve/settle) is not. After a power loss the job file can outlive its invoice entry.
+
+**Why:** Rare, but it would drop a recorded charge. Found in the `higgsfield-api` second review pass.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+

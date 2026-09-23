@@ -10,7 +10,8 @@ unlocks a lane.
 |---|---|---|---|
 | `APIFY_TOKEN` | Apify | Reel/profile scraping for the inspiration pipeline (`pipeline/analyze_reel.py`) | Stage 0 intake from a reel URL. **Alternative:** connect the Apify MCP instead of a raw key. |
 | `ELEVENLABS_API_KEY` | ElevenLabs | Narration TTS; persona voices are locked per account | Stage 4 (produce) for any voiced piece |
-| `FAL_KEY` | fal.ai | Image + video generation (Lane C: persona stills, lipsync, AI b-roll) | Stages 3–4. **Alternative/complement:** Higgsfield via its MCP connector (no key in `.env` — authorize the connector in Claude Code). |
+| `FAL_KEY` | fal.ai | Image + video generation (Lane C: persona stills, lipsync, AI b-roll) | Stages 3–4. |
+| `HF_KEY` | Higgsfield API | Seedance 2.5 image-to-video for `foundry build` — **preferred whenever it is available** | Stage 4. `<key_id>:<secret>` from console.higgsfield.ai. Without it (or if it is refused) builds fall back to the Higgsfield MCP. |
 | `GOOGLE_API_KEY` | Gemini | Video analysis of scraped reels; **Nano Banana** image generation | Stage 0 deconstruction + Stage 3 keyframes |
 | `OPENAI_API_KEY` | OpenAI | ChatGPT image generation (fallback/alternative to Nano Banana) | Stage 3, optional |
 | `PEXELS_API_KEY` | Pexels | Stock b-roll fallback | Stage 4, optional |
@@ -32,7 +33,7 @@ unlocks a lane.
 | **foundry suite** (`.claude/skills/foundry*`) | in-repo skills | The production system itself — ships with the repo, zero setup |
 | **Official Remotion skill** (`remotion-best-practices`) | skill | Deterministic motion graphics — Lane A (chart replays, listicles, text plates) |
 | **Official Playwright skill** | skill | Web demos & captured-evidence automation — Lane B (app walkthroughs, screen proof) |
-| **Higgsfield MCP** | MCP connector | Generative video (Lane C) — authorize in Claude Code session |
+| **Higgsfield MCP** | MCP connector | Generative video (Lane C) — the fallback when the Higgsfield API is unavailable; authorize in Claude Code session |
 | **Apify MCP** | MCP connector | Scraping without managing a raw token (either this OR `APIFY_TOKEN`) |
 
 ### Skill packs (installed by default, not optional)

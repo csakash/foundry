@@ -15,7 +15,7 @@ CLAUDE_CONNECTORS_URL = "https://claude.ai/settings/connectors"
 MCP_SERVERS: list[dict[str, str]] = [
     {
         "name": "Higgsfield",
-        "needed_for": "generating the video clips in /foundry-build (seedance_2_5)",
+        "needed_for": "generating the video clips in /foundry-build (seedance_2_5) when the Higgsfield API is unavailable",
         "url": "https://mcp.higgsfield.ai/mcp",
         "host": "mcp.higgsfield.ai",
         "account": "https://higgsfield.ai",

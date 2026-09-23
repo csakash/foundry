@@ -291,7 +291,8 @@ workspace file is additive; a consumer without `foundry.json` gets a clear `foun
 - Carousel changes; `pipeline/render_carousel.mjs` and `foundry-carousel` untouched.
 - Migrating any gmm-contents script (decided: fresh code).
 - Autonomous posting as the acceptance path; the mode exists but is not the test.
-- A Python Higgsfield HTTP adapter; the MCP is the only video route.
+- ~~A Python Higgsfield HTTP adapter; the MCP is the only video route.~~ In scope from 1.1: see
+  "Higgsfield API route" below.
 - Codex host support for the skills.
 - Retention analytics feeding back into the hook catalog.
 
@@ -300,3 +301,174 @@ workspace file is additive; a consumer without `foundry.json` gets a clear `foun
 - Design doc: `plans/foundry-loops.md` in the gmm-contents workspace
 - gstack-loops: https://github.com/csakash/gstack-loops (`SPEC.md`, `lib/driver.js`, `skills/gloop*`)
 - Quality bar: `gmm-contents/work/_ugc/imani-salary-hook/`, `gmm-contents/personas/imani/character.json`
+
+---
+
+# Higgsfield API route (loop `higgsfield-api`, 1.1)
+
+## Context
+
+Every clip goes through the Higgsfield MCP today: the build agent calls six MCP tools, and
+`foundry` only sees the upload URL, the reservation and the result URL. Three costs follow:
+
+1. The MCP must be connected **in the session that builds**. A claude.ai connector is invisible
+   to `claude mcp list`, so `foundry doctor` reports it missing and a headless `claude -p` build
+   cannot use it.
+2. The agent holds the generate tool, so a generation made without a reservation leaves no
+   trace (TODOS: "Tie video generations to reservations at the provider").
+3. Policy is split between the CLI and the agent's discipline.
+
+Higgsfield now has a first-party REST API (`https://api.higgsfield.ai`, key `HF_KEY`) with
+Seedance 2.5 image-to-video. When it is available, `foundry` should call it itself.
+
+## Rule
+
+> **If the Higgsfield API is available, always use it. Otherwise use the Higgsfield MCP.**
+
+"Available" is decided per build, live, never cached across runs:
+
+| Condition | Route |
+|---|---|
+| `providers.video.route` is `"mcp"` | mcp (pinned) |
+| no `HF_KEY` and no `HF_API_KEY`+`HF_API_SECRET` in the environment / workspace `.env` | mcp |
+| piece was approved before the API existed (its frozen invoice has no `video_usd` ceiling) | mcp |
+| `POST /estimate/<endpoint>` → 200 | **api** |
+| estimate → 401, 403, 404, 423, 503, network error or timeout | mcp, with the reason |
+| `providers.video.route` is `"api"` and any of the above fails | refused (no silent fallback) |
+
+`route` defaults to `"auto"`. Existing workspaces merge the default, so they get the rule
+without editing `foundry.json`.
+
+## API contract (verified 2026-09-23 against docs.higgsfield.ai and the official SDK)
+
+| Step | Call |
+|---|---|
+| auth | `Authorization: Key <key_id>:<secret>` — sent **only** to the configured `base_url` host |
+| availability + price | `POST /estimate/bytedance/seedance-2.5/image-to-video` (no charge) |
+| upload | `POST /files/generate-upload-url {content_type}` → `{public_url, upload_url, upload_headers}`; `PUT upload_url` with exactly `upload_headers`, **no credentials** |
+| submit | `POST /bytedance/seedance-2.5/image-to-video {image_url, prompt, duration, resolution, generate_audio: false, bitrate_mode}` → `{request_id, status_url, cancel_url}` |
+| poll | `GET status_url` → `status` ∈ queued, in_progress, completed, failed, nsfw, canceled |
+| result | completed → `video.url` (kept ≥ 7 days) |
+
+Notes that shape the implementation:
+
+- The schema is `additionalProperties: false` and has **no aspect field**; framing follows the
+  start image. `aspect_ratio` is never sent.
+- `generate_audio` defaults to **true** upstream; Foundry always sends `false` (audio is
+  replaced in the cut).
+- `duration` is an integer, 4–30 s, rounded half up from `duration_s` by one helper
+  (`video.api_duration`) that both the plan and the reservation use. A shot outside that range gets
+  no API budget, so its piece stays on the MCP route.
+- Seedance 2.5's estimate returns a pricing *description*, not a number: tokens =
+  ceil(seconds × width × height × 24 / 1024), USD 0.0214 per 1,000 tokens at 480p/720p. Foundry
+  computes the price from this formula at the **720×1280 upper bound** (framing follows the start
+  image, so the real frame is no larger). The rate and endpoint are constants, not workspace
+  config, so an edited `foundry.json` cannot under-record spend.
+- Submissions have **no idempotency key**. A submit POST is never retried. How a submit answer is
+  read:
+  - **accepted**: 2xx with a request id and a status URL on the API host.
+  - **refused** (nothing accepted, nothing billed): every 4xx, and 503 ("model disabled or not ready"
+    per the docs).
+  - **unknown outcome**: a network error, a timeout, a response cut short, any other 5xx, or a 2xx we
+    cannot follow (unreadable body, missing id, a status URL on another host).
+- Status GETs retry with backoff (2 s → 10 s, ×1.5, jitter). No attempt starts, or runs, past the
+  caller's deadline: each attempt's timeout is capped by the time left.
+- `failed` and `nsfw` are refunded upstream, but still settle as `failed`, which the ceiling counts
+  (the existing conservative rule). Only calls foundry *knows* never reached the provider settle
+  `void`, which is not counted.
+- `status_url` from a response is only followed if its host is the configured `base_url` host.
+
+## Money
+
+The API bills in USD, the MCP in Higgsfield credits. One ledger unit per currency:
+
+- `video_credits` (MCP, unchanged) and **`video_usd`** (API, new).
+- `hook_reel.plan()` plans **both**, and approval freezes a ceiling for **both**
+  (`planned × credit_ceiling_multiplier`). Whichever route a build takes — including a
+  fallback part-way through — its spend has a frozen ceiling.
+- `video_usd` is reserved only by `foundry generate`. `foundry reserve --unit` keeps its current
+  choices, so the agent cannot book API spend by hand.
+- **Each unit pays only on its own route.** `ingest-clip` / `fetch` (MCP) consume only `video_credits`;
+  only `foundry generate` consumes `video_usd`, and only for the request it collected. An `unknown-…`
+  charge can never pay for a clip, and a shot with an API request in flight or parked refuses any other
+  clip.
+- New settle state **`void`**: reserved, then nothing was sent (upload failed, a definite refusal, a
+  kill before the POST). Not counted against the ceiling. Set only by foundry.
+- `foundry settle` refuses `video_usd` entries: only `foundry generate` settles them.
+- The two ceilings are independent: a build that switches route part-way can spend up to both. The
+  approval sheet says so.
+
+## New commands
+
+| Command | Who | Does |
+|---|---|---|
+| `foundry route [piece]` | agent + human | Prints `{route, reason, cause}`. Live check; spends nothing. A piece with an API request in flight routes to api (it must be collected there); `generate` ignores that override before a *new* submit, so another shot's request never waives the pin, key or ceiling checks. |
+| `foundry generate <piece> --shot <id> [--guidance-from clip] [--wait-s N]` | agent + human | API route only (it trusts the `foundry route` just asked; the submit re-checks). Under a per-shot non-blocking lock: price, `reserve video_usd` (may BLOCK), upload, submit, poll, settle, download through the existing https checks, ingest. |
+| `foundry generate <piece> --shot <id> --clear-unknown` | **human only** | Unparks a shot after an unknown-outcome submit, and abandons a request foundry cannot collect (settled charged, `unknown-<request>`, never usable). |
+
+**The job file.** Every step leaves `incoming/<shot>.api-job.json` (fsynced) in a phase that says what a
+re-run does if the process is killed there:
+
+| Phase | Written | A re-run… |
+|---|---|---|
+| `reserved` | after the reservation, before the upload | voids the reservation and starts again |
+| `submitting` | immediately before the POST | treats it as an unknown outcome |
+| `submitted` | after the POST returns a request id | polls that request; never resubmits |
+
+The job file records the approved frame's sha256. A request that completes after the first frame was
+replaced is settled as charged and **not** ingested. A re-run that finds the clip already ingested
+for its request finishes cleanly.
+
+**Time budget.** One call runs at most **100 s** by default (the build agent's shell kills long
+commands at ~2 min): ~75 s of waiting and 25 s kept for download and ingest. Every request timeout
+is capped by the time left, and generate will not *start* a POST without the request timeout plus
+5 s in hand — it voids the reservation and asks for a re-run instead. `--wait-s N` (≤ 3600) or
+`providers.video.api.poll_timeout_s` size a longer call for a human in a terminal; under the build
+agent the call is always capped at 100 s. The download gets at most half the time left. Not finished →
+"run it again", which resumes.
+
+**Unknown outcome**: the reservation is settled as charged (`ref unknown-<entry>`), the shot is
+parked in `incoming/<shot>.api-unknown.json`, and every later `generate` or clip ingest for that shot
+refuses until a human runs `--clear-unknown`. The build agent prints `BLOCKED video.unknown_submit`
+and stops.
+
+**The key never reaches the agent.** A headless build strips `HF_KEY`, `HF_API_KEY` and
+`HF_API_SECRET` from the environment it gives `claude -p`; each `foundry` command reloads them from
+the workspace `.env` inside its own process. The key must therefore live in the workspace `.env`
+for headless builds.
+
+## Build, skill, doctor
+
+- The build prompt and `/foundry-build` start STAGE CLIP with `foundry route`; api →
+  `foundry generate`; mcp → the existing six-tool MCP steps, unchanged.
+- Headless `argv`: `providers.video.mcp_server` is required only when the route resolves to mcp.
+  With the api route the session gets no MCP tools unless `mcp_server` is set, and its prompt says so.
+  An in-session (interactive) build keeps the MCP steps: it has the session's connectors.
+- `foundry doctor`: new `Higgsfield API` row (live estimate unless `--offline`). When the API is
+  ok, the `Higgsfield MCP` row becomes a `note` (fallback only) instead of `todo`. A `video route`
+  row states which route builds will take and why.
+
+## Acceptance criteria
+
+1. With `HF_KEY` unset, behaviour and every existing test are unchanged (route mcp).
+2. With a working key, `foundry route` → api; doctor status is not "action needed" because of
+   the MCP row alone.
+3. `foundry generate` makes exactly one submit per call, reserves `video_usd` before any
+   upload, refuses when the route is mcp, and never sends credentials to the upload or
+   download host.
+4. Unknown outcome → charged, not resubmitted, the shot parked; the charge can never pay for a clip;
+   `--clear-unknown` is refused under `FOUNDRY_AGENT`.
+5. Killed at any step → the next run does the right thing for that phase (void / unknown / resume); a
+   clip already ingested finishes cleanly; one call fits in 100 s by default.
+6. failed / nsfw → settled failed with the request id; clip not ingested. Refusals and pre-POST
+   failures settle `void` and never exhaust the ceiling.
+7a. No clip can be ingested for a shot with an API request in flight or parked, except that request's.
+7b. A clip generated from a replaced first frame is charged and not ingested.
+7c. The build agent's environment holds no `HF_*` secret.
+7. Budget: `video_usd` ceiling frozen at approval; a reservation past it BLOCKs `budget.video_usd`.
+8. Headless dry-run with api route builds argv without `mcp_server`.
+9. Gate: `python3 -m pytest -q` and `python3 -m compileall -q foundry engine`; no network in tests.
+
+Deferred (TODOS.md): two *different* shots regenerating at once can both pass the shared clip retry
+budget check; the second ingest then blocks. Single-shot specs (the hook_reel default) are unaffected,
+and the MCP route has the same race today.

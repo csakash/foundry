@@ -189,9 +189,9 @@ def resolve(ws: Workspace, piece: Piece) -> dict[str, Any]:
         problems.append(f"the cut would run {total:g}s, outside {lo}-{min(hi, ws.defaults['max_duration_s'])}s; "
                         f"adjust assets.0.trim_s")
     n = int(ws.defaults.get("sheet_candidates", 3))
-    planned = hook_reel.plan(spec, n)
+    planned = hook_reel.plan(spec, n, ws.config["providers"]["video"])
     spec["budget"] = {"unit_credits": hook_reel.UNIT_CREDITS, "planned": planned,
-                      "ceiling": {k: v * ws.defaults["credit_ceiling_multiplier"] for k, v in planned.items()}}
+                      "ceiling": {k: round(v * ws.defaults["credit_ceiling_multiplier"], 2) for k, v in planned.items()}}
 
     if len(questions) > MAX_QUESTIONS:  # structurally impossible with five slots; guard the invariant anyway
         raise AssertionError(f"resolver produced {len(questions)} questions")

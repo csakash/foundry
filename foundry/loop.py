@@ -243,7 +243,8 @@ def regen_frame(ws: Workspace, piece: Piece, provider=None) -> dict[str, Any]:
             "next": "record the face box and hands verdict for the new frame, then foundry qc --stage frames"}
 
 
-def ingest_clip(ws: Workspace, piece: Piece, mp4: Path, job: str, shot: str = "shot01") -> dict[str, Any]:
+def ingest_clip(ws: Workspace, piece: Piece, mp4: Path, job: str, shot: str = "shot01",
+                units: tuple[str, ...] = ("video_credits",)) -> dict[str, Any]:
     """Validate and sample into staging first; only then spend the payment, bump the cycle and swap files."""
     piece.require("building")
     piece.require_pass("frames")
@@ -264,11 +265,19 @@ def ingest_clip(ws: Workspace, piece: Piece, mp4: Path, job: str, shot: str = "s
         raise FoundryError(f"{mp4} is not a readable video")
     if not info.get("width"):
         raise FoundryError(f"{mp4} has no video stream")
+    api_job = read_json(piece.rel("incoming", f"{shot}.api-job.json")) or {}
+    if piece.rel("incoming", f"{shot}.api-unknown.json").exists():
+        raise FoundryError(f"{shot} is parked after a Higgsfield API submit with an unknown outcome; a human must "
+                           f"clear it (foundry generate {piece.ref} --shot {shot} --clear-unknown)")
+    if api_job and api_job.get("request_id") != job:
+        raise FoundryError(f"{shot} has a Higgsfield API request in flight ({api_job.get('request_id') or 'submitting'}); "
+                           f"collect it with foundry generate before ingesting any other clip")
     dst = piece.rel("clips", f"{shot}.mp4")
     regeneration = dst.exists()
     if regeneration:
         begin_regeneration(piece, "clip")
-    piece.consume("video_credits", job, check_only=True)  # refuse an unpaid clip before touching any file
+    # `ingest-clip`/`fetch` (MCP route) pay only in video_credits; API dollars are spent only by foundry.video
+    piece.consume(units, job, check_only=True)  # refuse an unpaid clip before touching any file
     stage_dir = piece.rel("clips", f".staging-{shot}")
     if stage_dir.exists():
         shutil.rmtree(stage_dir)
@@ -293,7 +302,7 @@ def ingest_clip(ws: Workspace, piece: Piece, mp4: Path, job: str, shot: str = "s
     (stage_dir / f"{shot}.mp4").replace(dst)
     (stage_dir / "frames").replace(piece.rel("clips", shot, "frames"))
     shutil.rmtree(stage_dir, ignore_errors=True)
-    piece.consume("video_credits", job)  # the payment is spent only once the clip is in place
+    piece.consume(units, job)  # the payment is spent only once the clip is in place
     write_json(piece.rel("clips", f"{shot}.json"), {"source": str(src), "job": job, "cycle": cycle, "at": now(),
                                                    "frames": [f.name for f in frames], "probe": info})
     return {"piece": piece.ref, "shot": shot, "cycle": cycle, "frames": len(frames),
@@ -332,18 +341,33 @@ def _opener(ws: Workspace):
     return urllib.request.build_opener(handler), handler.hosts
 
 
+UPLOAD_TIMEOUT_S = 120
+
+
 def upload_approved(ws: Workspace, piece: Piece, url: str) -> dict[str, Any]:
     """PUT frames/approved.png to a presigned upload URL. Nothing else in the workspace can be sent."""
+    return put_presigned(ws, piece, url, {"Content-Type": "image/png"})
+
+
+def put_presigned(ws: Workspace, piece: Piece, url: str, headers: dict[str, str],
+                  timeout: float = UPLOAD_TIMEOUT_S) -> dict[str, Any]:
+    """PUT frames/approved.png to a presigned URL with exactly the headers the provider asked for.
+
+    Used by `foundry upload` (MCP route) and foundry.video (API route). No provider credentials are ever
+    sent here: an Authorization header is refused before any I/O."""
     piece.require("building")
     piece.require_pass("frames")
+    if any(k.lower() == "authorization" for k in headers):
+        raise FoundryError("refusing to send an Authorization header to a presigned upload URL")
     opener, hosts = _opener(ws)
     data = piece.rel(APPROVED).read_bytes()
-    req = urllib.request.Request(_check_url(url, hosts), data=data, method="PUT", headers={"Content-Type": "image/png"})
-    with opener.open(req, timeout=120) as r:
+    req = urllib.request.Request(_check_url(url, hosts), data=data, method="PUT", headers=dict(headers))
+    with opener.open(req, timeout=timeout) as r:
         return {"piece": piece.ref, "uploaded": APPROVED, "bytes": len(data), "http": r.status}
 
 
-def download_clip(ws: Workspace, piece: Piece, url: str, job: str, shot: str = "shot01") -> Path:
+def download_clip(ws: Workspace, piece: Piece, url: str, job: str, shot: str = "shot01",
+                  timeout: float = 300) -> Path:
     """Runs without the piece lock (a download can take minutes); ingest then takes it."""
     piece.require("building")
     check_name(shot, SHOT_RE, "shot id")
@@ -355,7 +379,7 @@ def download_clip(ws: Workspace, piece: Piece, url: str, job: str, shot: str = "
     dst = incoming / f"{shot}-{safe_job}-{tag}.mp4"
     part = dst.with_suffix(".part")
     try:
-        with opener.open(urllib.request.Request(_check_url(url, hosts)), timeout=300) as r, open(part, "wb") as f:
+        with opener.open(urllib.request.Request(_check_url(url, hosts)), timeout=timeout) as r, open(part, "wb") as f:
             total = 0
             while chunk := r.read(1 << 20):
                 total += len(chunk)

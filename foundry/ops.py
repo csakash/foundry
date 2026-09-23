@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from engine.providers import get_image_provider
+from engine.providers.higgsfield_api import CONSOLE_URL
 
-from . import __version__, services
+from . import __version__, services, video
 from .piece import Piece
 from .util import human_only, read_json
 from .workspace import Workspace, version_ok
@@ -52,9 +53,27 @@ def doctor(ws: Workspace | None, offline: bool = False) -> dict[str, Any]:
                 row(f"image model {img['model']}", "ok" if ok else "fail", detail)
         else:
             row("image provider", "warn", f"kind={img['kind']} (offline fake, spends nothing)")
+    route = None
+    if ws is not None:
+        try:
+            route = video.resolve(ws, live=not offline)
+        except Exception as e:  # a pinned route that cannot be honoured is a failure, not a crash
+            row("Higgsfield API", "fail", str(e))
+        if route is not None:
+            if route["route"] == "api":
+                row("Higgsfield API", "ok", route["reason"])
+            elif route["pinned"] == "mcp":
+                row("Higgsfield API", "note", "not used: providers.video.route is pinned to mcp")
+            else:
+                row("Higgsfield API", "note", f"{route['cause']}\n  To use it: create a key at {CONSOLE_URL}, then "
+                    f"add to {ws.root / '.env'}:\n  HF_KEY=<key_id>:<secret>")
+            row("video route", "ok", f"{route['route']} — {route['reason']}")
     listed = None if offline else services.list_mcp(cwd=str(ws.root) if ws else None)
     for server in services.MCP_SERVERS:
         status, lines = services.mcp_status(server, listed)
+        if route is not None and route["route"] == "api" and status == "todo":
+            status, lines = "note", ["not connected; only needed as the fallback when the Higgsfield API is "
+                                     "unavailable"] + lines
         row(f"{server['name']} MCP", status, "\n".join(lines))
     if ws is not None and not ws.config["providers"]["video"].get("transfer_hosts"):
         row("transfer hosts", "note", "foundry upload/fetch accept any public https host; list the provider's upload "
@@ -69,7 +88,8 @@ def ls(ws: Workspace) -> list[dict[str, Any]]:
     for p in Piece.all(ws):
         st = p.status
         out.append({"piece": p.ref, "state": st["state"], "touches": st.get("touches", 0), "cycles": st["cycles"],
-                    "video_credits": p.spent("video_credits"), "image_calls": p.spent("image_call"),
+                    "video_credits": p.spent("video_credits"), "video_usd": p.spent("video_usd"),
+                    "image_calls": p.spent("image_call"),
                     "blocked_gate": st.get("blocked_gate") if st["state"] == "blocked" else None,
                     "posted": bool((read_json(p.rel("publish.json")) or {}).get("posted_at"))})
     return out

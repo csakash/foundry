@@ -29,6 +29,10 @@ STAGES = ["frames", "clip", "cut"]
 APPROVED = "frames/approved.png"
 LOCK = "approved.lock.json"
 COUNTED = ("reserved", "settled", "failed")  # a failed call may still have been billed
+VIDEO_UNITS = ("video_credits", "video_usd")  # MCP credits, Higgsfield API dollars (SPEC.md "Higgsfield API route")
+# A charge whose request id is unknown (a submit that may or may not have landed). It is counted as spent and
+# can never pay for a clip: nothing proves which clip, if any, it bought.
+UNKNOWN_REF_PREFIX = "unknown-"
 
 
 class Piece:
@@ -304,8 +308,14 @@ class Piece:
             write_json(self.path / "invoice.json", inv)
             return eid
 
-    def settle(self, eid: str, ok: bool, actual: float | None = None, ref: str | None = None) -> dict[str, Any]:
-        """One-way: reserved -> settled | failed. Never lowers a recorded charge."""
+    def settle(self, eid: str, ok: bool, actual: float | None = None, ref: str | None = None,
+               void: bool = False) -> dict[str, Any]:
+        """One-way: reserved -> settled | failed | void. Never lowers a recorded charge.
+
+        void is for a call foundry knows never reached the provider (nothing submitted); it is not counted
+        against the ceiling. Only foundry sets it, never an agent."""
+        if void and ok:
+            raise FoundryError("a void settlement is never ok")
         with self.exclusive():
             inv = self.invoice
             e = next((x for x in inv["entries"] if x["id"] == eid), None)
@@ -317,7 +327,7 @@ class Piece:
                 raise FoundryError("actual must be a finite number")
             if actual is not None and actual < e["amount"]:
                 raise FoundryError(f"actual {actual} is lower than the reserved {e['amount']}; charges are never lowered")
-            e["state"] = "settled" if ok else "failed"
+            e["state"] = "settled" if ok else ("void" if void else "failed")
             if actual is not None:
                 e["amount"] = actual
             if ref:
@@ -332,14 +342,17 @@ class Piece:
                                                        f"approval is over the ceiling {inv['ceilings'][unit]:g}")
             return e
 
-    def consume(self, unit: str, ref: str, check_only: bool = False) -> dict[str, Any]:
-        """Tie a generated asset to the settled reservation that paid for it, once."""
+    def consume(self, unit: str | tuple[str, ...], ref: str, check_only: bool = False) -> dict[str, Any]:
+        """Tie a generated asset to the settled reservation that paid for it, once. `unit` may name several."""
+        units = (unit,) if isinstance(unit, str) else tuple(unit)
+        if str(ref).startswith(UNKNOWN_REF_PREFIX):
+            raise FoundryError(f"{ref!r} is a charge with an unknown outcome; it cannot pay for a clip")
         with self.exclusive():
             inv = self.invoice
-            e = next((x for x in inv["entries"] if x["unit"] == unit and x.get("ref") == ref
+            e = next((x for x in inv["entries"] if x["unit"] in units and x.get("ref") == ref
                       and x["state"] == "settled" and not x.get("consumed")), None)
             if e is None:
-                raise FoundryError(f"no settled, unused {unit} reservation with ref {ref!r}; "
+                raise FoundryError(f"no settled, unused {' or '.join(units)} reservation with ref {ref!r}; "
                                    f"reserve before generating and settle with --ref {ref}")
             if check_only:
                 return e

@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from .loop import run_qc
-from .piece import Piece
+from .piece import VIDEO_UNITS, Piece
 from .util import SLUG_RE, FoundryError, check_name, human_only, now, read_json, write_json
 from .workspace import Workspace
 
@@ -47,7 +47,7 @@ def ship(ws: Workspace, piece: Piece, recipe_name: str | None = None) -> dict[st
         "spec": {k: v for k, v in spec.items() if k not in ("account", "slug", "created_at", "resolved_from", "recipe")},
         "parameters": RECIPE_PARAMETERS,
         "stage_map": {p["slot"]: p["stages"] for p in RECIPE_PARAMETERS},
-        "cost_per_run": {u: piece.spent(u) for u in ("image_call", "video_credits")},
+        "cost_per_run": {u: piece.spent(u) for u in ("image_call", *VIDEO_UNITS)},
         "touches": piece.status.get("touches", 0),
         "cycles": piece.status["cycles"],
         "invoice_ceilings": inv.get("ceilings"),

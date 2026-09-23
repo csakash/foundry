@@ -123,8 +123,9 @@ def compose(spec: dict[str, Any], piece: Piece, sd: Path, names: list[str], cap:
         canvas.paste(im, (x, y))
         d.text((x, y + th + 10), label, fill=(233, 228, 216), font=f_lab)
     b = spec["budget"]
-    d.text((pad, H - 80), f"Approving freezes the invoice: ceiling {b['ceiling']['video_credits']:.1f} video credits, "
-                          f"{b['ceiling']['image_call']:.0f} image calls. Font: {cap['font_used']}"
+    usd = f" or ${b['ceiling']['video_usd']:.2f} via the API" if b["ceiling"].get("video_usd") else ""
+    d.text((pad, H - 80), f"Approving freezes the invoice: ceiling {b['ceiling']['video_credits']:.1f} video credits"
+                          f"{usd}, {b['ceiling']['image_call']:.0f} image calls. Font: {cap['font_used']}"
                           + (" (SUBSTITUTED)" if cap["font_substituted"] else ""), fill=(200, 190, 170), font=f_lab)
     canvas.save(sd / "sheet.png")
     return sd / "sheet.png"
@@ -148,6 +149,8 @@ def write_html(spec: dict[str, Any], piece: Piece, sd: Path, names: list[str], c
         for c in names)
     structure = "".join(f"<li>{s['t'][0]:.0f}–{s['t'][1]:.0f} s · {e(s['beat'])}</li>" for s in spec["structure"])
     b = spec["budget"]
+    usd_html = (f"(or <b>${b['ceiling']['video_usd']:.2f}</b> on the Higgsfield API)"
+                if b["ceiling"].get("video_usd") else "")
     page = f"""<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Sheet · {e(piece.ref)}</title>
 <style>
@@ -170,7 +173,8 @@ code{{background:var(--card);border:1px solid var(--line);padding:2px 6px;border
 <figure><img src="{_b64(sd / 'caption-preview.png')}" alt="caption preview"><figcaption>caption in place</figcaption></figure>
 <figure><img src="{_b64(sd / 'product.jpg')}" alt="product clip"><figcaption>product clip</figcaption></figure></div>
 <ul>{structure}</ul>
-<p>Approving freezes the invoice: at most <b>{b['ceiling']['video_credits']:.1f}</b> video credits and
+<p>Approving freezes the invoice: at most <b>{b['ceiling']['video_credits']:.1f}</b> video credits
+{usd_html} and
 <b>{b['ceiling']['image_call']:.0f}</b> image calls for the whole build.
 Caption font: {e(cap['font_used'])}{' <b>(substituted)</b>' if cap['font_substituted'] else ''}.</p>
 <p id="out" class="mute">Buttons copy the command. Run it in the workspace.</p>
