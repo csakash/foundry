@@ -6,19 +6,21 @@ higgsfield-client SDK, 2026-09-23). Three rules shape everything here:
 - Credentials go only to the configured base URL's host. Presigned upload URLs and result URLs are
   fetched by the caller, without them. A `status_url` from a response is followed only if it points
   at the same host.
-- A generation submit is never retried: the API has no idempotency key, so a timeout or 5xx on the
-  POST is an unknown outcome (`HiggsfieldError.ambiguous`), not a failure to repeat.
-- Status polls retry with backoff until a deadline.
+- A generation submit is never retried: the API has no idempotency key, so a network error, timeout,
+  or any 5xx other than 503 on the POST is an unknown outcome (`HiggsfieldError.ambiguous`), not a
+  failure to repeat. Every 4xx, and 503 ("model disabled or not ready" per the docs), is a refusal:
+  nothing was accepted.
+- Status polls retry with backoff, and never run past a caller's deadline.
 
 The network call is injectable (`send`) so tests never touch the internet.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import math
 import os
 import random
-import socket
 import time
 import urllib.error
 import urllib.parse
@@ -34,10 +36,20 @@ PRICE_FRAME = {"480p": (480, 854), "720p": (720, 1280)}
 DURATION_S = (4, 30)
 TERMINAL = frozenset({"completed", "failed", "nsfw", "canceled"})
 KNOWN = TERMINAL | {"queued", "in_progress"}
+CONSOLE_URL = "https://console.higgsfield.ai"  # API keys, request history and spend
 RETRY_GET = frozenset({408, 429, 500, 502, 503, 504})
-REJECTED = frozenset({400, 401, 403, 404, 422, 423, 503})  # the submit was refused, nothing was accepted
+# The API route is unavailable to this account right now (docs: concepts/errors): fall back to the MCP.
+UNAVAILABLE = frozenset({401, 403, 404, 423, 503})
+DEFAULT_TIMEOUT_S = 20.0
+# Network failures, including a response cut short mid-body (http.client errors are not OSError).
+NETWORK = (OSError, http.client.HTTPException)
 PROBE_IMAGE = "https://example.com/foundry-probe.png"  # the estimate endpoint checks the shape, not the file
 USER_AGENT = "foundry-higgsfield/1.1"
+
+
+def rejected(status: int) -> bool:
+    """A submit answered with this status was refused: nothing was accepted, nothing is billed."""
+    return 400 <= status < 500 or status == 503
 
 # (method, url, body, headers, timeout) -> (status, headers, body)
 Send = Callable[[str, str, bytes | None, Mapping[str, str], float], tuple[int, Mapping[str, str], bytes]]
@@ -113,7 +125,7 @@ def _detail(body: bytes) -> str:
 class HiggsfieldAPI:
     def __init__(self, key: str, base_url: str = BASE_URL, endpoint: str = ENDPOINT, send: Send | None = None,
                  sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
-                 timeout: float = 60.0):
+                 timeout: float = DEFAULT_TIMEOUT_S):
         if not key or ":" not in key:
             raise HiggsfieldError("the Higgsfield key must look like <key_id>:<secret>")
         u = urllib.parse.urlparse(base_url)
@@ -141,13 +153,14 @@ class HiggsfieldAPI:
             return path_or_url
         return f"{self.base_url}/{path_or_url.lstrip('/')}"
 
-    def _once(self, method: str, path_or_url: str, payload: Any = None) -> tuple[int, str | None, bytes]:
+    def _once(self, method: str, path_or_url: str, payload: Any = None,
+              timeout: float | None = None) -> tuple[int, str | None, bytes]:
         url = self._url(path_or_url)
         body = json.dumps(payload).encode() if payload is not None else None
         headers = {"Authorization": f"Key {self._key}", "Accept": "application/json", "User-Agent": USER_AGENT}
         if body is not None:
             headers["Content-Type"] = "application/json"
-        status, rh, data = self._send(method, url, body, headers, self.timeout)
+        status, rh, data = self._send(method, url, body, headers, timeout or self.timeout)
         cid = next((v for k, v in (rh or {}).items() if k.lower() == "x-correlation-id"), None)
         return status, cid, data
 
@@ -165,7 +178,7 @@ class HiggsfieldAPI:
         """One attempt; any non-2xx or network failure raises (not ambiguous)."""
         try:
             status, cid, data = self._once(method, path_or_url, payload)
-        except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as e:
+        except NETWORK as e:
             raise HiggsfieldError(f"network error: {getattr(e, 'reason', e)}") from e
         if not 200 <= status < 300:
             raise HiggsfieldError(f"HTTP {status}: {_detail(data)}", status, cid)
@@ -188,13 +201,13 @@ class HiggsfieldAPI:
         return out
 
     def submit(self, arguments: Mapping[str, Any]) -> dict[str, Any]:
-        """Exactly one POST. A timeout, network error or 5xx other than 503 is ambiguous."""
+        """Exactly one POST. A network error, a timeout, or a 5xx other than 503 is ambiguous; see `rejected`."""
         try:
             status, cid, data = self._once("POST", self.endpoint, dict(arguments))
-        except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as e:
+        except NETWORK as e:
             raise HiggsfieldError(f"submit outcome unknown (network: {getattr(e, 'reason', e)})",
                                   ambiguous=True) from e
-        if status in REJECTED:
+        if rejected(status):
             raise HiggsfieldError(f"HTTP {status}: {_detail(data)}", status, cid)
         if not 200 <= status < 300:
             raise HiggsfieldError(f"submit outcome unknown (HTTP {status}: {_detail(data)})", status, cid,
@@ -212,12 +225,16 @@ class HiggsfieldAPI:
         out["correlation_id"] = cid
         return out
 
-    def status(self, status_url: str, deadline: float | None = None) -> dict[str, Any]:
-        """GET with backoff on network errors, 408/429 and 5xx, until `deadline` (monotonic seconds)."""
+    def status(self, status_url: str, deadline: float) -> dict[str, Any]:
+        """GET with backoff on network errors, 408/429 and 5xx. Never starts an attempt, or lets one run, past
+        `deadline` (monotonic seconds): each attempt's timeout is capped by the time left."""
         delay = 1.0
         while True:
+            left = deadline - self._clock()
+            if left <= 0:
+                raise HiggsfieldError("no time left to read the request status", pending=True)
             try:
-                status, cid, data = self._once("GET", status_url)
+                status, cid, data = self._once("GET", status_url, timeout=min(self.timeout, max(1.0, left)))
                 if 200 <= status < 300:
                     out = self._json(data, status, cid)
                     if out.get("status") not in KNOWN:
@@ -226,22 +243,19 @@ class HiggsfieldAPI:
                 if status not in RETRY_GET:
                     raise HiggsfieldError(f"HTTP {status}: {_detail(data)}", status, cid)
                 reason = f"HTTP {status}"
-            except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as e:
+            except NETWORK as e:
                 reason = f"network: {getattr(e, 'reason', e)}"
-            if deadline is not None and self._clock() + delay > deadline:
+            if self._clock() + delay > deadline:
                 raise HiggsfieldError(f"status check kept failing ({reason})", pending=True)
             self._sleep(delay + random.uniform(0, 0.25))
             delay = min(delay * 2, 10.0)
 
-    def wait(self, status_url: str, timeout_s: float,
-             on_poll: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
+    def wait(self, status_url: str, timeout_s: float) -> dict[str, Any]:
         """Poll until a terminal status: 2 s, growing x1.5 to 10 s, with jitter (docs: concepts/polling)."""
         deadline = self._clock() + timeout_s
         delay = 2.0
         while True:
             out = self.status(status_url, deadline)
-            if on_poll:
-                on_poll(out)
             if out["status"] in TERMINAL:
                 return out
             if self._clock() + delay > deadline:

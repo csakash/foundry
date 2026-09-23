@@ -264,6 +264,13 @@ def ingest_clip(ws: Workspace, piece: Piece, mp4: Path, job: str, shot: str = "s
         raise FoundryError(f"{mp4} is not a readable video")
     if not info.get("width"):
         raise FoundryError(f"{mp4} has no video stream")
+    api_job = read_json(piece.rel("incoming", f"{shot}.api-job.json")) or {}
+    if piece.rel("incoming", f"{shot}.api-unknown.json").exists():
+        raise FoundryError(f"{shot} is parked after a Higgsfield API submit with an unknown outcome; a human must "
+                           f"clear it (foundry generate {piece.ref} --shot {shot} --clear-unknown)")
+    if api_job and api_job.get("request_id") != job:
+        raise FoundryError(f"{shot} has a Higgsfield API request in flight ({api_job.get('request_id') or 'submitting'}); "
+                           f"collect it with foundry generate before ingesting any other clip")
     dst = piece.rel("clips", f"{shot}.mp4")
     regeneration = dst.exists()
     if regeneration:
@@ -332,22 +339,20 @@ def _opener(ws: Workspace):
     return urllib.request.build_opener(handler), handler.hosts
 
 
+UPLOAD_TIMEOUT_S = 120
+
+
 def upload_approved(ws: Workspace, piece: Piece, url: str) -> dict[str, Any]:
     """PUT frames/approved.png to a presigned upload URL. Nothing else in the workspace can be sent."""
-    piece.require("building")
-    piece.require_pass("frames")
-    opener, hosts = _opener(ws)
-    data = piece.rel(APPROVED).read_bytes()
-    req = urllib.request.Request(_check_url(url, hosts), data=data, method="PUT", headers={"Content-Type": "image/png"})
-    with opener.open(req, timeout=120) as r:
-        return {"piece": piece.ref, "uploaded": APPROVED, "bytes": len(data), "http": r.status}
+    return put_presigned(ws, piece, url, {"Content-Type": "image/png"})
 
 
-def put_presigned(ws: Workspace, piece: Piece, url: str, headers: dict[str, str]) -> dict[str, Any]:
-    """PUT frames/approved.png to a provider's presigned URL with exactly the headers it asked for.
+def put_presigned(ws: Workspace, piece: Piece, url: str, headers: dict[str, str],
+                  timeout: float = UPLOAD_TIMEOUT_S) -> dict[str, Any]:
+    """PUT frames/approved.png to a presigned URL with exactly the headers the provider asked for.
 
-    The Higgsfield API route's upload (foundry.video). Same https/public-host checks as upload_approved;
-    no provider credentials are ever sent here."""
+    Used by `foundry upload` (MCP route) and foundry.video (API route). No provider credentials are ever
+    sent here: an Authorization header is refused before any I/O."""
     piece.require("building")
     piece.require_pass("frames")
     if any(k.lower() == "authorization" for k in headers):
@@ -355,7 +360,7 @@ def put_presigned(ws: Workspace, piece: Piece, url: str, headers: dict[str, str]
     opener, hosts = _opener(ws)
     data = piece.rel(APPROVED).read_bytes()
     req = urllib.request.Request(_check_url(url, hosts), data=data, method="PUT", headers=dict(headers))
-    with opener.open(req, timeout=120) as r:
+    with opener.open(req, timeout=timeout) as r:
         return {"piece": piece.ref, "uploaded": APPROVED, "bytes": len(data), "http": r.status}
 
 

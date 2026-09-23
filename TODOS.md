@@ -125,3 +125,25 @@
 **Depends on:** None
 
 ## Completed
+
+### Claim the clip retry cycle when a generation is submitted
+
+**What:** Two different shots regenerating at the same time can both pass `begin_regeneration` with one retry left; both are paid, and the second ingest blocks the piece.
+
+**Why:** The clip cycle counter is shared across shots and only bumped at ingest. Found in the `higgsfield-api` review.
+
+**Context:** Single-shot specs (the hook_reel default) cannot hit it. The MCP route has the same race. Fix by reserving the cycle at submit and releasing it on a failed/void outcome.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
+### Strip the other provider secrets from the build agent's environment
+
+**What:** `foundry build` now strips `HF_*` from the env it gives `claude -p`; `OPENAI_API_KEY` (and any other key in the workspace `.env`) is still inherited.
+
+**Why:** Same reasoning as the Higgsfield key: `foundry` reloads `.env` itself, so the agent's shell never needs them.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None

@@ -8,7 +8,10 @@ When the Higgsfield API is available Foundry now always uses it for video; other
 
 - `foundry route [piece]` says which video route a build takes now and why. "Available" is a live, free check against Higgsfield's estimate endpoint, never cached.
 - `foundry generate <piece> --shot <id>` runs the whole API path in one command: price, reserve, upload the approved frame, submit, wait, download, ingest. The build agent never holds the key or a generate tool, which closes the "tie video generations to reservations" gap for this route.
-- A stdlib Higgsfield client (`engine/providers/higgsfield_api.py`). Credentials go only to the API host; presigned uploads and downloads never see them; redirects on authenticated calls are refused. A submit is never retried: a timeout or 5xx is recorded as spent and not resubmitted. An interrupted generate resumes the same request.
+- A stdlib Higgsfield client (`engine/providers/higgsfield_api.py`). Credentials go only to the API host; presigned uploads and downloads never see them; redirects on authenticated calls are refused. A submit is never retried: every 4xx (and 503) is a refusal, any other failure is an unknown outcome that is recorded as spent and parked for a human. Status polls never run past the call's deadline.
+- Crash safety: a phased, fsynced job file per shot. A kill before the POST voids the reservation, a kill inside it parks the shot, a kill after it resumes; a clip already ingested finishes cleanly; a clip from a replaced first frame is charged but not ingested. One `generate` call fits in 100 s so the agent's shell never kills it mid-step.
+- `void` settle state for calls that never reached the provider; it does not count against the ceiling.
+- The build agent's environment no longer carries `HF_KEY` / `HF_API_KEY` / `HF_API_SECRET`.
 - `video_usd` ledger unit. Specs now plan and freeze a ceiling in both currencies, so either route (and a fallback part-way) is capped. `foundry ls` shows both.
 - `foundry doctor`: `Higgsfield API` and `video route` rows; the MCP row is only a note when the API works.
 - `HF_KEY` in `.env.example`; `providers.video.route` (`auto` | `api` | `mcp`, default `auto`).
@@ -16,7 +19,8 @@ When the Higgsfield API is available Foundry now always uses it for video; other
 ### Changed
 
 - The build prompt and `/foundry-build` ask `foundry route` per shot. Headless builds need `providers.video.mcp_server` only on the MCP route.
-- A clip can be paid for in either video unit (`ingest-clip`, `fetch`).
+- A clip can be paid for in either video unit (`ingest-clip`, `fetch`), never by an `unknown-…` charge, and not while the shot has an API request in flight or parked.
+- `foundry settle` refuses `video_usd` entries (only `foundry generate` settles them). The shipped recipe's `cost_per_run` includes `video_usd`.
 - Pieces approved before this change have no `video_usd` ceiling, so they stay on the MCP route.
 
 ## [1.0.0.0] - 2026-09-17

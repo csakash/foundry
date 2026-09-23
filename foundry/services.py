@@ -11,7 +11,6 @@ from typing import Any
 
 OPENAI_KEYS_URL = "https://platform.openai.com/api-keys"
 CLAUDE_CONNECTORS_URL = "https://claude.ai/settings/connectors"
-HIGGSFIELD_API_KEYS_URL = "https://console.higgsfield.ai"  # the Higgsfield API route: HF_KEY=<key_id>:<secret>
 
 MCP_SERVERS: list[dict[str, str]] = [
     {

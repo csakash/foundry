@@ -40,12 +40,13 @@ and why. Pin one with `providers.video.route` (`"api"` or `"mcp"`; default `"aut
 | Build | `/foundry-build` or `foundry build @account/slug --mode bypass` | no |
 | Ship | `/foundry-ship` (`foundry ship`), then post and `foundry posted` | posts by hand |
 
-`foundry ls` shows every piece's state, cycles and credits; `foundry reap` clears media from
+`foundry ls` shows every piece's state, cycles and spend (`video_credits` on the MCP route, `video_usd` on the API route); `foundry reap` clears media from
 posted pieces. Or just say `/foundry <what you want>`.
 
 Headless builds on the MCP route need `providers.video.mcp_server` in `foundry.json` (the video MCP
 server's name as Claude Code lists it); on the API route they need nothing extra. The session gets
-`foundry`, reads under `work/`, and — only when `mcp_server` is set — six named video tools, nothing else. Optionally pin `providers.video.transfer_hosts` to the provider's upload and CDN hosts.
+`foundry`, reads under `work/`, and — only when `mcp_server` is set — six named video tools, nothing else. Optionally pin `providers.video.transfer_hosts` to the provider's upload and CDN hosts. If you do, include the Higgsfield API's presigned-upload and result hosts too, or the API route's
+upload and download will be refused.
 
 ## Why it exists
 

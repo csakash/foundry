@@ -28,12 +28,17 @@ MAX_FIX_CYCLES = 10
 MODES = ["interactive", "bypass", "autonomous"]
 SERVER_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 HUMAN_STEPS = ["init", "cast", "new", "set", "sheet", "approve", "build", "ship", "posted", "reap"]
+# Provider secrets the build session's shell must not hold. `foundry generate` reloads them from the workspace
+# .env inside its own process, so the agent can call the API without ever being able to read or send the key.
+AGENT_SECRET_ENV = ("HF_KEY", "HF_API_KEY", "HF_API_SECRET")
 
 
-def prompt(ws: Workspace, piece: Piece, cycles: int, route: dict[str, Any] | None = None) -> str:
+def prompt(ws: Workspace, piece: Piece, cycles: int, route: dict[str, Any] | None = None,
+           headless: bool = False) -> str:
     video = ws.config["providers"]["video"]
     route = route or {"route": "mcp", "reason": "not resolved"}
-    mcp_ok = bool(video.get("mcp_server")) or route["route"] == "mcp"
+    # An in-session build has whatever connectors the session has; only a headless one is limited to mcp_server.
+    mcp_ok = not headless or bool(video.get("mcp_server")) or route["route"] == "mcp"
     ref = piece.ref
     d = piece.path.relative_to(ws.root)
     shots = ", ".join(sh["id"] for sh in (read_json(piece.rel("spec.json")) or {}).get("shots", [])) or "shot01"
@@ -103,7 +108,7 @@ def argv(ws: Workspace, piece: Piece, mode: str, cycles: int, route: dict[str, A
     denied = (["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Read(./.env)", "Read(~/.ssh/**)",
                "Read(~/.aws/**)", "Read(~/.config/**)"]
               + [f"Bash(foundry {s}:*)" for s in HUMAN_STEPS])
-    return ["claude", "-p", prompt(ws, piece, cycles, route), "--permission-mode", PERMISSION_MODE[mode],
+    return ["claude", "-p", prompt(ws, piece, cycles, route, headless=True), "--permission-mode", PERMISSION_MODE[mode],
             "--allowedTools", *allowed, "--disallowedTools", *denied]
 
 
@@ -127,7 +132,7 @@ def build(ws: Workspace, piece: Piece, mode: str, cycles: int | None = None, dry
             piece.set_fix_cycles(cycles)  # re-checks the state under the piece lock
     budget = cycles if cycles is not None else lock["fix_cycles"]
     route = video_mod.resolve(ws, piece)  # live, once per build; the agent re-asks per shot
-    text = prompt(ws, piece, budget, route)
+    text = prompt(ws, piece, budget, route, headless=mode != "interactive")
     if mode == "interactive":
         return {"piece": piece.ref, "mode": mode, "fix_cycles": budget, "prompt": text, "video_route": route,
                 "next": f"run /foundry-build {piece.ref} in a Claude session in this workspace"}
@@ -140,7 +145,8 @@ def build(ws: Workspace, piece: Piece, mode: str, cycles: int | None = None, dry
         raise FoundryError("claude CLI not on PATH")
     pidfile = piece.rel(".build.pid")
     fd = _claim_pidfile(pidfile, piece.ref)
-    env = {**os.environ, AGENT_ENV: piece.ref}  # the session may only act on this piece
+    env = {k: v for k, v in os.environ.items() if k not in AGENT_SECRET_ENV}
+    env[AGENT_ENV] = piece.ref  # the session may only act on this piece
     try:
         proc = subprocess.Popen(args, cwd=ws.root, env=env, start_new_session=True)
         os.write(fd, str(proc.pid).encode())

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from engine.providers import get_image_provider
+from engine.providers.higgsfield_api import CONSOLE_URL
 
 from . import __version__, services, video
 from .piece import Piece
@@ -64,9 +65,8 @@ def doctor(ws: Workspace | None, offline: bool = False) -> dict[str, Any]:
             elif route["pinned"] == "mcp":
                 row("Higgsfield API", "note", "not used: providers.video.route is pinned to mcp")
             else:
-                row("Higgsfield API", "note", route["reason"].replace("Higgsfield API unavailable: ", "") +
-                    f"\n  To use it: create a key at {services.HIGGSFIELD_API_KEYS_URL}, then add to "
-                    f"{ws.root / '.env'}:\n  HF_KEY=<key_id>:<secret>")
+                row("Higgsfield API", "note", f"{route['cause']}\n  To use it: create a key at {CONSOLE_URL}, then "
+                    f"add to {ws.root / '.env'}:\n  HF_KEY=<key_id>:<secret>")
             row("video route", "ok", f"{route['route']} — {route['reason']}")
     listed = None if offline else services.list_mcp(cwd=str(ws.root) if ws else None)
     for server in services.MCP_SERVERS:

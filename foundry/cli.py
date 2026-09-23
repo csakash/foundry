@@ -268,6 +268,9 @@ def _piece_command(a: argparse.Namespace, ws, piece: Piece) -> tuple[Any, int]:
         return {"entry": piece.reserve(a.unit, a.amount, a.note or a.unit), "spent": piece.spent(a.unit),
                 "ceiling": piece.invoice["ceilings"].get(a.unit)}, 0
     if a.cmd == "settle":
+        owned = next((e for e in piece.invoice["entries"] if e["id"] == a.entry and e["unit"] == "video_usd"), None)
+        if owned:  # reserved and settled only by foundry generate; a hand settle would wedge its resume
+            raise FoundryError(f"{a.entry} is a Higgsfield API reservation; foundry generate settles it")
         return piece.settle(a.entry, a.ok, a.actual, a.ref), 0
     if a.cmd == "regen-frame":
         return loop.regen_frame(ws, piece), 0

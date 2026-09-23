@@ -25,8 +25,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "image": {"kind": "openai-images", "model": "gpt-image-2.5-sunburst", "quality": "high", "rpm_images": 5},
         "vision": {"kind": "agent"},
         # route: "auto" uses the Higgsfield API when it is available and the MCP otherwise; "api" or "mcp" pins one
-        # (SPEC.md "Higgsfield API route"). model/aspect/mcp_server describe the MCP route; the API route's
-        # endpoint and pricing default in foundry.video.API_DEFAULTS and can be overridden under "api".
+        # (SPEC.md "Higgsfield API route"). model/aspect/mcp_server describe the MCP route. The API route takes
+        # resolution from here and, optionally, "api": {"poll_timeout_s": N} (default 90 s per generate call).
         "video": {"kind": "higgsfield-mcp", "model": "seedance_2_5", "resolution": "720p", "aspect": "9:16",
                   "audio": False, "mcp_server": None, "route": "auto"},
     },
